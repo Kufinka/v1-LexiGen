@@ -156,19 +156,21 @@ export default function DashboardPage() {
                       tick={{ fontSize: 12 }}
                       tickLine={false}
                     />
-                    <YAxis tick={{ fontSize: 12 }} tickLine={false} />
+                    <YAxis tick={{ fontSize: 12 }} tickLine={false} allowDecimals={false} />
                     <Tooltip
                       contentStyle={{
                         backgroundColor: "hsl(var(--card))",
                         border: "1px solid hsl(var(--border))",
                         borderRadius: "0.75rem",
                         color: "hsl(var(--foreground))",
+                        boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
                       }}
+                      cursor={{ fill: "hsl(var(--primary) / 0.08)" }}
                       // eslint-disable-next-line @typescript-eslint/no-explicit-any
                       formatter={(value: any) =>
                         chartMode === "reviews"
                           ? [`${value} reviews`, "Reviews"]
-                          : [`${value} min`, "Time"]
+                          : [`${Math.round(value)} min`, "Time"]
                       }
                       labelFormatter={(label) => `Day ${label}`}
                     />
@@ -176,6 +178,9 @@ export default function DashboardPage() {
                       dataKey={chartMode === "reviews" ? "reviews" : "minutes"}
                       fill="hsl(var(--primary))"
                       radius={[4, 4, 0, 0]}
+                      style={{ filter: "none" }}
+                      onMouseEnter={() => {}}
+                      activeBar={{ style: { filter: "brightness(1.1) drop-shadow(0 0 4px hsl(var(--primary) / 0.3))", stroke: "none" } }}
                     />
                   </BarChart>
                 </ResponsiveContainer>

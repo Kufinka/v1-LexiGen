@@ -16,6 +16,9 @@ export async function GET(req: Request, { params }: { params: { deckId: string }
       return NextResponse.json({ error: "Not found or forbidden" }, { status: 404 });
     }
 
+    // Update lastAccessedAt
+    await prisma.deck.update({ where: { id: params.deckId }, data: { lastAccessedAt: new Date() } });
+
     const { searchParams } = new URL(req.url);
     const filter = searchParams.get("filter") || "mixed";
 

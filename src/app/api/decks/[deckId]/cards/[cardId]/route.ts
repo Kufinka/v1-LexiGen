@@ -25,9 +25,15 @@ export async function PATCH(
       return NextResponse.json({ error: result.error.issues[0].message }, { status: 400 });
     }
 
+    // Allow SRS fields to be passed for undo functionality
+    const srsData: Record<string, unknown> = {};
+    if (typeof body.easeFactor === "number") srsData.easeFactor = body.easeFactor;
+    if (typeof body.interval === "number") srsData.interval = body.interval;
+    if (typeof body.repetitions === "number") srsData.repetitions = body.repetitions;
+
     const card = await prisma.card.update({
       where: { id: params.cardId, deckId: params.deckId },
-      data: result.data,
+      data: { ...result.data, ...srsData },
     });
 
     return NextResponse.json(card);

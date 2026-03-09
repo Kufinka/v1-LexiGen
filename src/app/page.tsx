@@ -1,7 +1,13 @@
+"use client";
+
+import { useEffect } from "react";
+import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
+import { useTheme } from "next-themes";
 import Link from "next/link";
 import { Navbar } from "@/components/navbar";
 import { Button } from "@/components/ui/button";
-import { BookOpen, Brain, Users, BarChart3, Sparkles, Zap } from "lucide-react";
+import { BookOpen, Brain, Users, BarChart3, Sparkles, Zap, Sun, Moon } from "lucide-react";
 
 const features = [
   {
@@ -37,6 +43,18 @@ const features = [
 ];
 
 export default function LandingPage() {
+  const { data: session, status } = useSession();
+  const router = useRouter();
+  const { theme, setTheme } = useTheme();
+
+  useEffect(() => {
+    if (status === "authenticated") {
+      router.replace("/decks");
+    }
+  }, [status, router]);
+
+  if (status === "authenticated") return null;
+
   return (
     <div className="min-h-screen">
       <Navbar />
@@ -47,6 +65,19 @@ export default function LandingPage() {
             <div className="absolute top-1/4 left-1/4 w-72 h-72 bg-primary/20 rounded-full blur-3xl" />
             <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-pink-300/20 dark:bg-pink-500/10 rounded-full blur-3xl" />
           </div>
+          {/* Theme toggle for non-logged-in users */}
+          {!session && (
+            <div className="absolute top-4 right-4 z-10">
+              <Button
+                variant="outline"
+                size="icon"
+                className="rounded-full glass"
+                onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+              >
+                {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+              </Button>
+            </div>
+          )}
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
             <h1 className="text-4xl sm:text-6xl lg:text-7xl font-bold tracking-tight">
               Master Languages with{" "}

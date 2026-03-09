@@ -22,6 +22,10 @@ export async function POST(req: Request, { params }: { params: { deckId: string 
       return NextResponse.json({ error: "Deck not found or not public" }, { status: 404 });
     }
 
+    if (deck.userId === session.user.id) {
+      return NextResponse.json({ error: "You cannot rate your own deck" }, { status: 403 });
+    }
+
     const rating = await prisma.deckRating.upsert({
       where: { userId_deckId: { userId: session.user.id, deckId: params.deckId } },
       update: { score },

@@ -8,11 +8,22 @@ export async function GET(req: Request, { params }: { params: { deckId: string }
   try {
     const comments = await prisma.deckComment.findMany({
       where: { deckId: params.deckId },
-      include: { user: { select: { username: true, image: true } } },
+      include: { user: { select: { id: true, username: true, image: true } } },
       orderBy: { createdAt: "desc" },
     });
 
-    return NextResponse.json(comments);
+    // Attach user's rating to each comment
+    const ratings = await prisma.deckRating.findMany({
+      where: { deckId: params.deckId },
+    });
+    const ratingMap = new Map(ratings.map((r) => [r.userId, r.score]));
+
+    const commentsWithRating = comments.map((c) => ({
+      ...c,
+      userRating: ratingMap.get(c.userId) || null,
+    }));
+
+    return NextResponse.json(commentsWithRating);
   } catch (error) {
     console.error("Error fetching comments:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
@@ -37,16 +48,28 @@ export async function POST(req: Request, { params }: { params: { deckId: string 
       return NextResponse.json({ error: "Deck not found or not public" }, { status: 404 });
     }
 
-    const comment = await prisma.deckComment.create({
-      data: {
+    if (deck.userId === session.user.id) {
+      return NextResponse.json({ error: "You cannot comment on your own deck" }, { status: 403 });
+    }
+
+    // One comment per user per deck (upsert)
+    const comment = await prisma.deckComment.upsert({
+      where: { userId_deckId: { userId: session.user.id, deckId: params.deckId } },
+      update: { content: result.data.content },
+      create: {
         content: result.data.content,
         userId: session.user.id,
         deckId: params.deckId,
       },
-      include: { user: { select: { username: true, image: true } } },
+      include: { user: { select: { id: true, username: true, image: true } } },
     });
 
-    return NextResponse.json(comment, { status: 201 });
+    // Attach user rating
+    const userRating = await prisma.deckRating.findUnique({
+      where: { userId_deckId: { userId: session.user.id, deckId: params.deckId } },
+    });
+
+    return NextResponse.json({ ...comment, userRating: userRating?.score || null }, { status: 201 });
   } catch (error) {
     console.error("Error creating comment:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

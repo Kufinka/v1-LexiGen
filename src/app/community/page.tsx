@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Navbar } from "@/components/navbar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,6 +18,13 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import {
   Search,
@@ -30,11 +38,13 @@ import {
 interface CommunityDeck {
   id: string;
   name: string;
+  description: string | null;
   languageA: string;
   languageB: string;
   tags: string[];
   avgRating: number;
-  user: { username: string; image: string | null };
+  createdAt: string;
+  user: { id: string; username: string; image: string | null };
   _count: { cards: number; ratings: number; comments: number };
 }
 
@@ -42,7 +52,8 @@ interface Comment {
   id: string;
   content: string;
   createdAt: string;
-  user: { username: string; image: string | null };
+  userRating: number | null;
+  user: { id: string; username: string; image: string | null };
 }
 
 export default function CommunityPage() {
@@ -52,6 +63,9 @@ export default function CommunityPage() {
   const [decks, setDecks] = useState<CommunityDeck[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [tagFilter, setTagFilter] = useState("");
+  const [languageFilter, setLanguageFilter] = useState("");
+  const [sortBy, setSortBy] = useState("newest");
   const [selectedDeck, setSelectedDeck] = useState<CommunityDeck | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
   const [newComment, setNewComment] = useState("");
@@ -68,6 +82,9 @@ export default function CommunityPage() {
     try {
       const params = new URLSearchParams();
       if (search) params.set("search", search);
+      if (tagFilter) params.set("tag", tagFilter);
+      if (languageFilter) params.set("language", languageFilter);
+      params.set("sort", sortBy);
       const res = await fetch(`/api/community?${params.toString()}`);
       if (res.ok) {
         const data = await res.json();
@@ -78,11 +95,13 @@ export default function CommunityPage() {
     } finally {
       setLoading(false);
     }
-  }, [search, toast]);
+  }, [search, tagFilter, languageFilter, sortBy, toast]);
 
   useEffect(() => {
     if (session) fetchDecks();
   }, [session, fetchDecks]);
+
+  const isOwnDeck = (deck: CommunityDeck) => session?.user?.id === deck.user.id;
 
   const openDeckDetail = async (deck: CommunityDeck) => {
     setSelectedDeck(deck);
@@ -102,15 +121,24 @@ export default function CommunityPage() {
 
   const rateDeck = async (score: number) => {
     if (!selectedDeck) return;
+    if (isOwnDeck(selectedDeck)) {
+      toast({ title: "Error", description: "You cannot rate your own deck", variant: "destructive" });
+      return;
+    }
     setUserRating(score);
     try {
-      await fetch(`/api/decks/${selectedDeck.id}/rate`, {
+      const res = await fetch(`/api/decks/${selectedDeck.id}/rate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ score }),
       });
-      toast({ title: `Rated ${score} stars` });
-      fetchDecks();
+      if (res.ok) {
+        toast({ title: `Rated ${score} stars` });
+        fetchDecks();
+      } else {
+        const data = await res.json();
+        toast({ title: "Error", description: data.error, variant: "destructive" });
+      }
     } catch {
       toast({ title: "Error", description: "Failed to rate", variant: "destructive" });
     }
@@ -118,6 +146,10 @@ export default function CommunityPage() {
 
   const addComment = async () => {
     if (!selectedDeck || !newComment.trim()) return;
+    if (isOwnDeck(selectedDeck)) {
+      toast({ title: "Error", description: "You cannot comment on your own deck", variant: "destructive" });
+      return;
+    }
     try {
       const res = await fetch(`/api/decks/${selectedDeck.id}/comments`, {
         method: "POST",
@@ -126,9 +158,21 @@ export default function CommunityPage() {
       });
       if (res.ok) {
         const comment = await res.json();
-        setComments((prev) => [comment, ...prev]);
+        // Replace existing comment by same user or add new
+        setComments((prev) => {
+          const existing = prev.findIndex((c) => c.user.id === comment.user.id);
+          if (existing !== -1) {
+            const updated = [...prev];
+            updated[existing] = comment;
+            return updated;
+          }
+          return [comment, ...prev];
+        });
         setNewComment("");
-        toast({ title: "Comment added" });
+        toast({ title: "Comment saved" });
+      } else {
+        const data = await res.json();
+        toast({ title: "Error", description: data.error, variant: "destructive" });
       }
     } catch {
       toast({ title: "Error", description: "Failed to add comment", variant: "destructive" });
@@ -155,6 +199,10 @@ export default function CommunityPage() {
     fetchDecks();
   };
 
+  // Gather all unique tags and languages from loaded decks
+  const allTags = Array.from(new Set(decks.flatMap((d) => d.tags)));
+  const allLanguages = Array.from(new Set(decks.flatMap((d) => [d.languageA, d.languageB])));
+
   if (status === "loading") {
     return (
       <div className="min-h-screen">
@@ -170,25 +218,65 @@ export default function CommunityPage() {
     <div className="min-h-screen">
       <Navbar />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="flex items-center justify-between mb-8">
+        <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-3xl font-bold">Community Decks</h1>
             <p className="text-muted-foreground mt-1">Browse and clone public decks</p>
           </div>
         </div>
 
-        <form onSubmit={handleSearch} className="flex gap-2 mb-8">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search decks..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-10"
-            />
-          </div>
-          <Button type="submit">Search</Button>
-        </form>
+        {/* Search + Filters */}
+        <div className="flex flex-wrap gap-2 mb-8">
+          <form onSubmit={handleSearch} className="flex gap-2 flex-1 min-w-[200px]">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search decks..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+            <Button type="submit">Search</Button>
+          </form>
+          {allTags.length > 0 && (
+            <Select value={tagFilter} onValueChange={setTagFilter}>
+              <SelectTrigger className="w-36">
+                <SelectValue placeholder="Filter tag" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Tags</SelectItem>
+                {allTags.map((tag) => (
+                  <SelectItem key={tag} value={tag}>{tag}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          {allLanguages.length > 0 && (
+            <Select value={languageFilter} onValueChange={setLanguageFilter}>
+              <SelectTrigger className="w-36">
+                <SelectValue placeholder="Language" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Languages</SelectItem>
+                {allLanguages.map((lang) => (
+                  <SelectItem key={lang} value={lang}>{lang}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          <Select value={sortBy} onValueChange={setSortBy}>
+            <SelectTrigger className="w-40">
+              <SelectValue placeholder="Sort by" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="newest">Newest</SelectItem>
+              <SelectItem value="oldest">Oldest</SelectItem>
+              <SelectItem value="rating">Best Rated</SelectItem>
+              <SelectItem value="most_rated">Most Rated</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
 
         {loading ? (
           <div className="flex justify-center py-12">
@@ -214,21 +302,29 @@ export default function CommunityPage() {
                     <div className="flex items-center gap-1 text-sm">
                       <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
                       <span>{deck.avgRating || "—"}</span>
+                      <span className="text-muted-foreground text-xs">({deck._count.ratings})</span>
                     </div>
                   </div>
                 </CardHeader>
                 <CardContent>
+                  {deck.description && (
+                    <p className="text-sm text-muted-foreground mb-2 line-clamp-2">{deck.description}</p>
+                  )}
                   <p className="text-sm text-muted-foreground mb-2">
                     {deck.languageA} ↔ {deck.languageB}
                   </p>
                   <div className="flex items-center gap-2 mb-3">
-                    <Avatar className="h-6 w-6">
-                      <AvatarImage src={deck.user.image || ""} />
-                      <AvatarFallback className="text-xs bg-primary/20 text-primary">
-                        {deck.user.username.charAt(0).toUpperCase()}
-                      </AvatarFallback>
-                    </Avatar>
-                    <span className="text-sm text-muted-foreground">{deck.user.username}</span>
+                    <Link href={`/profile/${deck.user.id}`} onClick={(e) => e.stopPropagation()}>
+                      <div className="flex items-center gap-2 hover:underline">
+                        <Avatar className="h-6 w-6">
+                          <AvatarImage src={deck.user.image || ""} />
+                          <AvatarFallback className="text-xs bg-primary/20 text-primary">
+                            {deck.user.username.charAt(0).toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                        <span className="text-sm text-muted-foreground">{deck.user.username}</span>
+                      </div>
+                    </Link>
                   </div>
                   <div className="flex items-center gap-4 text-sm text-muted-foreground mb-3">
                     <span>{deck._count.cards} cards</span>
@@ -256,33 +352,51 @@ export default function CommunityPage() {
                   <DialogTitle>{selectedDeck.name}</DialogTitle>
                   <DialogDescription>
                     {selectedDeck.languageA} ↔ {selectedDeck.languageB} &middot; {selectedDeck._count.cards} cards
+                    {selectedDeck.description && (
+                      <span className="block mt-1">{selectedDeck.description}</span>
+                    )}
                   </DialogDescription>
                 </DialogHeader>
 
                 <div className="space-y-6 py-4">
+                  {/* Publisher */}
+                  <Link href={`/profile/${selectedDeck.user.id}`} className="flex items-center gap-2 hover:underline">
+                    <Avatar className="h-8 w-8">
+                      <AvatarImage src={selectedDeck.user.image || ""} />
+                      <AvatarFallback className="text-xs bg-primary/20 text-primary">
+                        {selectedDeck.user.username.charAt(0).toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                    <span className="text-sm font-medium">{selectedDeck.user.username}</span>
+                  </Link>
+
                   {/* Rating */}
-                  <div>
-                    <p className="text-sm font-medium mb-2">Rate this deck</p>
-                    <div className="flex gap-1">
-                      {[1, 2, 3, 4, 5].map((star) => (
-                        <button
-                          key={star}
-                          onMouseEnter={() => setHoverRating(star)}
-                          onMouseLeave={() => setHoverRating(0)}
-                          onClick={() => rateDeck(star)}
-                          className="focus:outline-none"
-                        >
-                          <Star
-                            className={`h-6 w-6 transition-colors ${
-                              star <= (hoverRating || userRating)
-                                ? "fill-yellow-400 text-yellow-400"
-                                : "text-muted-foreground"
-                            }`}
-                          />
-                        </button>
-                      ))}
+                  {isOwnDeck(selectedDeck) ? (
+                    <p className="text-sm text-muted-foreground italic">You cannot rate your own deck.</p>
+                  ) : (
+                    <div>
+                      <p className="text-sm font-medium mb-2">Rate this deck</p>
+                      <div className="flex gap-1">
+                        {[1, 2, 3, 4, 5].map((star) => (
+                          <button
+                            key={star}
+                            onMouseEnter={() => setHoverRating(star)}
+                            onMouseLeave={() => setHoverRating(0)}
+                            onClick={() => rateDeck(star)}
+                            className="focus:outline-none"
+                          >
+                            <Star
+                              className={`h-6 w-6 transition-colors ${
+                                star <= (hoverRating || userRating)
+                                  ? "fill-yellow-400 text-yellow-400"
+                                  : "text-muted-foreground"
+                              }`}
+                            />
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                  </div>
+                  )}
 
                   {/* Clone */}
                   <Button onClick={() => cloneDeck(selectedDeck.id)} className="w-full gap-2">
@@ -296,18 +410,22 @@ export default function CommunityPage() {
                       <MessageCircle className="h-4 w-4" />
                       Comments ({comments.length})
                     </p>
-                    <div className="flex gap-2 mb-4">
-                      <Textarea
-                        placeholder="Write a comment..."
-                        value={newComment}
-                        onChange={(e) => setNewComment(e.target.value)}
-                        rows={2}
-                        className="flex-1"
-                      />
-                      <Button onClick={addComment} disabled={!newComment.trim()} size="sm">
-                        Post
-                      </Button>
-                    </div>
+                    {isOwnDeck(selectedDeck) ? (
+                      <p className="text-sm text-muted-foreground italic mb-4">You cannot comment on your own deck.</p>
+                    ) : (
+                      <div className="flex gap-2 mb-4">
+                        <Textarea
+                          placeholder="Write a comment..."
+                          value={newComment}
+                          onChange={(e) => setNewComment(e.target.value)}
+                          rows={2}
+                          className="flex-1"
+                        />
+                        <Button onClick={addComment} disabled={!newComment.trim()} size="sm">
+                          Post
+                        </Button>
+                      </div>
+                    )}
                     <div className="space-y-3">
                       {comments.map((comment) => (
                         <div key={comment.id} className="p-3 rounded-lg bg-muted/50">
@@ -319,6 +437,12 @@ export default function CommunityPage() {
                               </AvatarFallback>
                             </Avatar>
                             <span className="text-sm font-medium">{comment.user.username}</span>
+                            {comment.userRating && (
+                              <span className="flex items-center gap-0.5 text-xs text-yellow-500">
+                                <Star className="h-3 w-3 fill-yellow-400" />
+                                {comment.userRating}
+                              </span>
+                            )}
                             <span className="text-xs text-muted-foreground">
                               {new Date(comment.createdAt).toLocaleDateString()}
                             </span>

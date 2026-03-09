@@ -33,7 +33,7 @@ export async function POST(req: Request) {
         },
         {
           role: "user",
-          content: `Generate 3 to 6 sentences (going from easy to hard, with more easy ones) using these words: ${words.join(", ")}. Use only these words if possible. Each sentence must contain at least one of the provided words. Return a JSON array of {"sideA": "...", "sideB": "..."}.`,
+          content: `Generate 3 to 6 sentences (going from easy to hard, with more easy ones) using these words: ${words.join(", ")}. CRITICAL RULES: 1) Every sentence MUST be a complete sentence with at least 4 words - never output a single word or short phrase as a sentence. 2) Each sentence must contain at least one of the provided words used naturally in context. 3) Never repeat one of the input words alone as a sentence. Return a JSON array of {"sideA": "...", "sideB": "..."}.`,
         },
       ],
       model: "llama-3.1-8b-instant",
@@ -55,7 +55,17 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid AI response format" }, { status: 500 });
     }
 
-    return NextResponse.json({ sentences });
+    // Filter out any "sentences" that are just single words or too short
+    const filtered = sentences.filter(
+      (s: { sideA?: string; sideB?: string }) =>
+        s.sideA &&
+        s.sideB &&
+        s.sideA.trim().split(/\s+/).length >= 3 &&
+        s.sideB.trim().split(/\s+/).length >= 2 &&
+        !words.some((w: string) => s.sideA!.trim().toLowerCase() === w.toLowerCase())
+    );
+
+    return NextResponse.json({ sentences: filtered.length > 0 ? filtered : sentences });
   } catch (error) {
     console.error("AI generation error:", error);
     return NextResponse.json({ error: "AI generation failed" }, { status: 500 });

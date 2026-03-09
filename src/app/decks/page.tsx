@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -8,6 +8,7 @@ import { Navbar } from "@/components/navbar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -19,17 +20,28 @@ import {
   DialogFooter,
   DialogDescription,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, BookOpen, Loader2, Trash2, Globe, Lock } from "lucide-react";
+import { Plus, BookOpen, Loader2, Trash2, Eye, EyeOff, Search, Copy, Clock } from "lucide-react";
 
 interface Deck {
   id: string;
   name: string;
+  description: string | null;
   languageA: string;
   languageB: string;
   tags: string[];
   isPublic: boolean;
   isClone: boolean;
+  createdAt: string;
+  lastAccessedAt: string;
+  dueCount: number;
   _count: { cards: number };
 }
 
@@ -41,20 +53,24 @@ export default function DecksPage() {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [newDeck, setNewDeck] = useState({ name: "", languageA: "", languageB: "", tags: "" });
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deletingDeckId, setDeletingDeckId] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [tagFilter, setTagFilter] = useState("");
+  const [sortBy, setSortBy] = useState("updatedAt");
+  const [newDeck, setNewDeck] = useState({ name: "", description: "", languageA: "", languageB: "", tags: "" });
 
   useEffect(() => {
     if (status === "unauthenticated") router.push("/login");
   }, [status, router]);
 
-  useEffect(() => {
-    if (session) fetchDecks();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session]);
-
-  const fetchDecks = async () => {
+  const fetchDecks = useCallback(async () => {
     try {
-      const res = await fetch("/api/decks");
+      const params = new URLSearchParams();
+      if (search) params.set("search", search);
+      if (tagFilter) params.set("tag", tagFilter);
+      params.set("sort", sortBy);
+      const res = await fetch(`/api/decks?${params.toString()}`);
       if (res.ok) {
         const data = await res.json();
         setDecks(data);
@@ -64,6 +80,16 @@ export default function DecksPage() {
     } finally {
       setLoading(false);
     }
+  }, [search, tagFilter, sortBy, toast]);
+
+  useEffect(() => {
+    if (session) fetchDecks();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, sortBy, tagFilter]);
+
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    fetchDecks();
   };
 
   const createDeck = async () => {
@@ -74,6 +100,7 @@ export default function DecksPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: newDeck.name,
+          description: newDeck.description || undefined,
           languageA: newDeck.languageA,
           languageB: newDeck.languageB,
           tags: newDeck.tags
@@ -85,7 +112,7 @@ export default function DecksPage() {
 
       if (res.ok) {
         setDialogOpen(false);
-        setNewDeck({ name: "", languageA: "", languageB: "", tags: "" });
+        setNewDeck({ name: "", description: "", languageA: "", languageB: "", tags: "" });
         fetchDecks();
         toast({ title: "Deck created!" });
       } else {
@@ -99,16 +126,19 @@ export default function DecksPage() {
     }
   };
 
-  const deleteDeck = async (deckId: string) => {
-    if (!confirm("Are you sure you want to delete this deck?")) return;
+  const deleteDeck = async () => {
+    if (!deletingDeckId) return;
+    setDeleteDialogOpen(false);
     try {
-      const res = await fetch(`/api/decks/${deckId}`, { method: "DELETE" });
+      const res = await fetch(`/api/decks/${deletingDeckId}`, { method: "DELETE" });
       if (res.ok) {
         fetchDecks();
         toast({ title: "Deck deleted" });
       }
     } catch {
       toast({ title: "Error", description: "Failed to delete deck", variant: "destructive" });
+    } finally {
+      setDeletingDeckId(null);
     }
   };
 
@@ -132,6 +162,15 @@ export default function DecksPage() {
     }
   };
 
+  // Gather all unique tags
+  const allTags = Array.from(new Set(decks.flatMap((d) => d.tags)));
+
+  const getDeckBorderClass = (deck: Deck) => {
+    if (deck.isClone) return "border-l-4 border-l-amber-400 dark:border-l-amber-500";
+    if (deck.isPublic) return "border-l-4 border-l-emerald-400 dark:border-l-emerald-500";
+    return "border-l-4 border-l-slate-300 dark:border-l-slate-600";
+  };
+
   if (status === "loading" || loading) {
     return (
       <div className="min-h-screen">
@@ -147,7 +186,7 @@ export default function DecksPage() {
     <div className="min-h-screen">
       <Navbar />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="flex items-center justify-between mb-8">
+        <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-3xl font-bold">My Decks</h1>
             <p className="text-muted-foreground mt-1">
@@ -170,9 +209,18 @@ export default function DecksPage() {
                 <div className="space-y-2">
                   <Label>Deck Name</Label>
                   <Input
-                    placeholder="e.g., Travel Japanese"
+                    placeholder="e.g., Travel"
                     value={newDeck.name}
                     onChange={(e) => setNewDeck({ ...newDeck, name: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Description (optional)</Label>
+                  <Textarea
+                    placeholder="Describe your deck..."
+                    value={newDeck.description}
+                    onChange={(e) => setNewDeck({ ...newDeck, description: e.target.value })}
+                    rows={2}
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
@@ -212,6 +260,52 @@ export default function DecksPage() {
           </Dialog>
         </div>
 
+        {/* Search, Filter, Sort */}
+        <div className="flex flex-wrap gap-2 mb-6">
+          <form onSubmit={handleSearch} className="flex gap-2 flex-1 min-w-[200px]">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search decks..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+            <Button type="submit" size="sm">Search</Button>
+          </form>
+          {allTags.length > 0 && (
+            <Select value={tagFilter} onValueChange={setTagFilter}>
+              <SelectTrigger className="w-36">
+                <SelectValue placeholder="Filter tag" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Tags</SelectItem>
+                {allTags.map((tag) => (
+                  <SelectItem key={tag} value={tag}>{tag}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          <Select value={sortBy} onValueChange={setSortBy}>
+            <SelectTrigger className="w-40">
+              <SelectValue placeholder="Sort by" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="updatedAt">Last Modified</SelectItem>
+              <SelectItem value="createdAt">Date Created</SelectItem>
+              <SelectItem value="lastAccessedAt">Last Accessed</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Legend */}
+        <div className="flex gap-4 text-xs text-muted-foreground mb-6">
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-slate-300 dark:bg-slate-600" /> Private</span>
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-emerald-400 dark:bg-emerald-500" /> Public</span>
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-amber-400 dark:bg-amber-500" /> Cloned</span>
+        </div>
+
         {decks.length === 0 ? (
           <div className="text-center py-20">
             <BookOpen className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
@@ -221,7 +315,7 @@ export default function DecksPage() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {decks.map((deck) => (
-              <Card key={deck.id} className="glass-card hover:scale-[1.02] transition-transform duration-200 group">
+              <Card key={deck.id} className={`glass-card hover:scale-[1.02] transition-transform duration-200 group ${getDeckBorderClass(deck)}`}>
                 <CardHeader className="pb-3">
                   <div className="flex items-start justify-between">
                     <Link href={`/decks/${deck.id}`} className="flex-1">
@@ -235,13 +329,13 @@ export default function DecksPage() {
                         onClick={() => togglePublic(deck)}
                         title={deck.isPublic ? "Make private" : "Make public"}
                       >
-                        {deck.isPublic ? <Globe className="h-4 w-4 text-green-500" /> : <Lock className="h-4 w-4 text-muted-foreground" />}
+                        {deck.isPublic ? <Eye className="h-4 w-4 text-emerald-500" /> : <EyeOff className="h-4 w-4 text-muted-foreground" />}
                       </Button>
                       <Button
                         variant="ghost"
                         size="icon"
                         className="h-8 w-8 text-destructive hover:text-destructive"
-                        onClick={() => deleteDeck(deck.id)}
+                        onClick={() => { setDeletingDeckId(deck.id); setDeleteDialogOpen(true); }}
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
@@ -250,22 +344,31 @@ export default function DecksPage() {
                 </CardHeader>
                 <CardContent>
                   <Link href={`/decks/${deck.id}`}>
-                    <p className="text-sm text-muted-foreground mb-3">
+                    <p className="text-sm text-muted-foreground mb-2">
                       {deck.languageA} ↔ {deck.languageB}
                     </p>
-                    <p className="text-sm mb-3">{deck._count.cards} cards</p>
-                    {deck.tags.length > 0 && (
-                      <div className="flex flex-wrap gap-1">
-                        {deck.tags.map((tag) => (
-                          <Badge key={tag} variant="secondary" className="text-xs">
-                            {tag}
-                          </Badge>
-                        ))}
-                      </div>
-                    )}
-                    {deck.isClone && (
-                      <Badge variant="outline" className="mt-2 text-xs">Cloned</Badge>
-                    )}
+                    <div className="flex items-center gap-3 text-sm mb-3">
+                      <span>{deck._count.cards} cards</span>
+                      {deck.dueCount > 0 && (
+                        <span className="flex items-center gap-1 text-primary font-medium">
+                          <Clock className="h-3 w-3" />
+                          {deck.dueCount} due
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {deck.tags.map((tag) => (
+                        <Badge key={tag} variant="secondary" className="text-xs">{tag}</Badge>
+                      ))}
+                      {deck.isClone && (
+                        <Badge variant="outline" className="text-xs border-amber-400 text-amber-600 dark:text-amber-400">
+                          <Copy className="h-3 w-3 mr-1" /> Cloned
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-2">
+                      Created {new Date(deck.createdAt).toLocaleDateString()}
+                    </p>
                   </Link>
                 </CardContent>
               </Card>
@@ -273,6 +376,22 @@ export default function DecksPage() {
           </div>
         )}
       </div>
+
+      {/* Delete Confirm Dialog */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Deck</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete this deck? All cards and study progress will be permanently removed. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
+            <Button variant="destructive" onClick={deleteDeck}>Delete</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

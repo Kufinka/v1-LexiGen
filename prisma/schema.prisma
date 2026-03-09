@@ -24,15 +24,17 @@ model User {
 }
 
 model Deck {
-  id          String   @id @default(cuid())
-  name        String
-  languageA   String
-  languageB   String
-  tags        String[]
-  isPublic    Boolean  @default(false)
-  isClone     Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id             String   @id @default(cuid())
+  name           String
+  description    String?
+  languageA      String
+  languageB      String
+  tags           String[]
+  isPublic       Boolean  @default(false)
+  isClone        Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  lastAccessedAt DateTime @default(now())
 
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -122,6 +124,7 @@ model DeckComment {
   deckId    String
   deck      Deck     @relation(fields: [deckId], references: [id], onDelete: Cascade)
 
+  @@unique([userId, deckId])
   @@index([deckId])
 }
 

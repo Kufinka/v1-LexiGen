@@ -50,7 +50,7 @@ export async function PATCH(req: Request, { params }: { params: { deckId: string
     const body = await req.json();
 
     // Handle isPublic toggle separately
-    if (typeof body.isPublic === "boolean") {
+    if (typeof body.isPublic === "boolean" && Object.keys(body).length === 1) {
       if (deck.isClone && body.isPublic) {
         return NextResponse.json({ error: "Cloned decks cannot be made public" }, { status: 400 });
       }
@@ -61,14 +61,24 @@ export async function PATCH(req: Request, { params }: { params: { deckId: string
       return NextResponse.json(updated);
     }
 
+    // Prevent changing isClone flag
+    if ("isClone" in body) {
+      delete body.isClone;
+    }
+
     const result = deckSchema.safeParse(body);
     if (!result.success) {
       return NextResponse.json({ error: result.error.issues[0].message }, { status: 400 });
     }
 
+    // If making public, description is required
+    if (body.isPublic === true && !result.data.description && !deck.description) {
+      return NextResponse.json({ error: "Public decks must have a description" }, { status: 400 });
+    }
+
     const updated = await prisma.deck.update({
       where: { id: params.deckId },
-      data: result.data,
+      data: { ...result.data, ...(typeof body.isPublic === "boolean" ? { isPublic: body.isPublic } : {}) },
     });
 
     return NextResponse.json(updated);

@@ -8,6 +8,7 @@ import { Navbar } from "@/components/navbar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -36,7 +37,11 @@ import {
   ArrowLeft,
   Sparkles,
   Upload,
+  Settings2,
+  Copy,
 } from "lucide-react";
+import JSZip from "jszip";
+import initSqlJs from "sql.js";
 
 interface CardItem {
   id: string;
@@ -52,11 +57,13 @@ interface CardItem {
 interface DeckDetail {
   id: string;
   name: string;
+  description: string | null;
   languageA: string;
   languageB: string;
   tags: string[];
   isPublic: boolean;
   isClone: boolean;
+  createdAt: string;
   cards: CardItem[];
   _count: { cards: number };
 }
@@ -73,9 +80,13 @@ export default function DeckDetailPage() {
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [aiDialogOpen, setAiDialogOpen] = useState(false);
+  const [deckEditDialogOpen, setDeckEditDialogOpen] = useState(false);
+  const [deleteCardDialogOpen, setDeleteCardDialogOpen] = useState(false);
+  const [deletingCardId, setDeletingCardId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [newCard, setNewCard] = useState({ sideA: "", sideB: "", type: "WORD" as "WORD" | "SENTENCE" });
   const [editingCard, setEditingCard] = useState<CardItem | null>(null);
+  const [editingDeck, setEditingDeck] = useState({ name: "", description: "", tags: "" });
   const [selectedWords, setSelectedWords] = useState<string[]>([]);
   const [aiSentences, setAiSentences] = useState<{ sideA: string; sideB: string }[]>([]);
   const [aiSelectedIndices, setAiSelectedIndices] = useState<number[]>([]);
@@ -152,16 +163,54 @@ export default function DeckDetailPage() {
     }
   };
 
-  const deleteCard = async (cardId: string) => {
-    if (!confirm("Delete this card?")) return;
+  const deleteCard = async () => {
+    if (!deletingCardId) return;
+    setDeleteCardDialogOpen(false);
     try {
-      const res = await fetch(`/api/decks/${deckId}/cards/${cardId}`, { method: "DELETE" });
+      const res = await fetch(`/api/decks/${deckId}/cards/${deletingCardId}`, { method: "DELETE" });
       if (res.ok) {
         fetchDeck();
         toast({ title: "Card deleted" });
       }
     } catch {
       toast({ title: "Error", description: "Failed to delete card", variant: "destructive" });
+    } finally {
+      setDeletingCardId(null);
+    }
+  };
+
+  const openDeckEditDialog = () => {
+    if (!deck) return;
+    setEditingDeck({
+      name: deck.name,
+      description: deck.description || "",
+      tags: deck.tags.join(", "),
+    });
+    setDeckEditDialogOpen(true);
+  };
+
+  const saveDeckEdit = async () => {
+    if (!deck) return;
+    try {
+      const res = await fetch(`/api/decks/${deckId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: editingDeck.name,
+          description: editingDeck.description || undefined,
+          tags: editingDeck.tags.split(",").map((t) => t.trim()).filter(Boolean),
+        }),
+      });
+      if (res.ok) {
+        setDeckEditDialogOpen(false);
+        fetchDeck();
+        toast({ title: "Deck updated!" });
+      } else {
+        const data = await res.json();
+        toast({ title: "Error", description: data.error, variant: "destructive" });
+      }
+    } catch {
+      toast({ title: "Error", description: "Failed to update deck", variant: "destructive" });
     }
   };
 
@@ -229,42 +278,106 @@ export default function DeckDetailPage() {
     }
   };
 
-  const handleFileImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const stripHtml = (html: string) => html.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').trim();
 
-    toast({ title: "Info", description: "APKG import processes basic text-based card data. Complex formatting may be simplified." });
+  const parseApkgFile = async (file: File): Promise<{ sideA: string; sideB: string; type: "WORD" | "SENTENCE" }[]> => {
+    const arrayBuffer = await file.arrayBuffer();
+    const zip = await JSZip.loadAsync(arrayBuffer);
+
+    // Find the SQLite database file inside the .apkg (usually "collection.anki2" or "collection.anki21")
+    let dbFile = zip.file("collection.anki2") || zip.file("collection.anki21");
+    if (!dbFile) {
+      // Try to find any .anki2 file
+      const files = Object.keys(zip.files);
+      const anki2 = files.find((f) => f.endsWith(".anki2") || f.endsWith(".anki21"));
+      if (anki2) dbFile = zip.file(anki2);
+    }
+    if (!dbFile) throw new Error("No Anki database found in .apkg file");
+
+    const dbData = await dbFile.async("uint8array");
+    const SQL = await initSqlJs({
+      locateFile: (file: string) => `https://sql.js.org/dist/${file}`,
+    });
+    const db = new SQL.Database(dbData);
+
+    const importedCards: { sideA: string; sideB: string; type: "WORD" | "SENTENCE" }[] = [];
 
     try {
-      const text = await file.text();
-      const lines = text.split("\n").filter((l) => l.trim());
-      const importedCards: { sideA: string; sideB: string; type: "WORD" | "SENTENCE" }[] = [];
-
-      for (const line of lines) {
-        const parts = line.split("\t");
-        if (parts.length >= 2) {
-          const sideA = parts[0].replace(/<[^>]*>/g, "").trim();
-          const sideB = parts[1].replace(/<[^>]*>/g, "").trim();
-          if (sideA && sideB) {
-            importedCards.push({
-              sideA,
-              sideB,
-              type: sideA.split(" ").length > 3 ? "SENTENCE" : "WORD",
-            });
+      // Anki stores notes with fields separated by \x1f (unit separator)
+      const results = db.exec("SELECT flds FROM notes");
+      if (results.length > 0) {
+        for (const row of results[0].values) {
+          const fields = String(row[0]).split("\x1f");
+          if (fields.length >= 2) {
+            const sideA = stripHtml(fields[0]);
+            const sideB = stripHtml(fields[1]);
+            if (sideA && sideB) {
+              importedCards.push({
+                sideA,
+                sideB,
+                type: sideA.split(" ").length > 3 ? "SENTENCE" : "WORD",
+              });
+            }
           }
         }
       }
+    } finally {
+      db.close();
+    }
+
+    return importedCards;
+  };
+
+  const parseTextFile = async (file: File): Promise<{ sideA: string; sideB: string; type: "WORD" | "SENTENCE" }[]> => {
+    const text = await file.text();
+    const lines = text.split("\n").filter((l) => l.trim());
+    const importedCards: { sideA: string; sideB: string; type: "WORD" | "SENTENCE" }[] = [];
+    const separator = file.name.endsWith(".csv") ? "," : "\t";
+
+    for (const line of lines) {
+      const parts = line.split(separator);
+      if (parts.length >= 2) {
+        const sideA = stripHtml(parts[0]);
+        const sideB = stripHtml(parts[1]);
+        if (sideA && sideB) {
+          importedCards.push({
+            sideA,
+            sideB,
+            type: sideA.split(" ").length > 3 ? "SENTENCE" : "WORD",
+          });
+        }
+      }
+    }
+    return importedCards;
+  };
+
+  const handleFileImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    // Reset input so re-importing the same file works
+    e.target.value = "";
+
+    try {
+      let importedCards: { sideA: string; sideB: string; type: "WORD" | "SENTENCE" }[];
+
+      if (file.name.endsWith(".apkg")) {
+        toast({ title: "Processing", description: "Extracting cards from .apkg file..." });
+        importedCards = await parseApkgFile(file);
+      } else {
+        importedCards = await parseTextFile(file);
+      }
 
       if (importedCards.length === 0) {
-        toast({ title: "Error", description: "No valid cards found in file. Expected tab-separated format.", variant: "destructive" });
+        toast({ title: "Error", description: "No valid cards found in file.", variant: "destructive" });
         return;
       }
 
       setAiSentences(importedCards);
       setAiSelectedIndices(importedCards.map((_, i) => i));
       setImportDialogOpen(true);
-    } catch {
-      toast({ title: "Error", description: "Failed to read file", variant: "destructive" });
+    } catch (err) {
+      console.error("Import error:", err);
+      toast({ title: "Error", description: "Failed to read file. Make sure it is a valid .apkg, .txt, .tsv, or .csv file.", variant: "destructive" });
     }
   };
 
@@ -320,11 +433,27 @@ export default function DeckDetailPage() {
             </Button>
           </Link>
           <div className="flex-1">
-            <h1 className="text-3xl font-bold">{deck.name}</h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-3xl font-bold">{deck.name}</h1>
+              {deck.isClone && (
+                <Badge variant="outline" className="text-xs border-amber-400 text-amber-600 dark:text-amber-400">
+                  <Copy className="h-3 w-3 mr-1" /> Cloned
+                </Badge>
+              )}
+            </div>
             <p className="text-muted-foreground">
               {deck.languageA} ↔ {deck.languageB} &middot; {deck.cards.length} cards
             </p>
+            {deck.description && (
+              <p className="text-sm text-muted-foreground mt-1">{deck.description}</p>
+            )}
+            <p className="text-xs text-muted-foreground mt-1">
+              Created {new Date(deck.createdAt).toLocaleDateString()}
+            </p>
           </div>
+          <Button variant="outline" size="icon" onClick={openDeckEditDialog} title="Edit Deck Info">
+            <Settings2 className="h-4 w-4" />
+          </Button>
         </div>
 
         {deck.tags.length > 0 && (
@@ -585,7 +714,7 @@ export default function DeckDetailPage() {
                       variant="ghost"
                       size="icon"
                       className="h-8 w-8 text-destructive"
-                      onClick={() => deleteCard(card.id)}
+                      onClick={() => { setDeletingCardId(card.id); setDeleteCardDialogOpen(true); }}
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
@@ -596,6 +725,61 @@ export default function DeckDetailPage() {
           )}
         </div>
       </div>
+
+      {/* Delete Card Confirm Dialog */}
+      <Dialog open={deleteCardDialogOpen} onOpenChange={setDeleteCardDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Card</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete this card? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setDeleteCardDialogOpen(false)}>Cancel</Button>
+            <Button variant="destructive" onClick={deleteCard}>Delete</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Deck Edit Dialog */}
+      <Dialog open={deckEditDialogOpen} onOpenChange={setDeckEditDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Deck Info</DialogTitle>
+            <DialogDescription>Update deck name, description, and tags.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Deck Name</Label>
+              <Input
+                value={editingDeck.name}
+                onChange={(e) => setEditingDeck({ ...editingDeck, name: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Description</Label>
+              <Textarea
+                placeholder="Describe your deck..."
+                value={editingDeck.description}
+                onChange={(e) => setEditingDeck({ ...editingDeck, description: e.target.value })}
+                rows={3}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Tags (comma separated)</Label>
+              <Input
+                value={editingDeck.tags}
+                onChange={(e) => setEditingDeck({ ...editingDeck, tags: e.target.value })}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeckEditDialogOpen(false)}>Cancel</Button>
+            <Button onClick={saveDeckEdit} disabled={!editingDeck.name}>Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

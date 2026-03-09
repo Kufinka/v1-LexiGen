@@ -21,6 +21,7 @@ export const loginSchema = z.object({
 
 export const deckSchema = z.object({
   name: z.string().min(1, "Deck name is required").max(100),
+  description: z.string().max(500).optional(),
   languageA: z.string().min(1, "Language A is required").max(50),
   languageB: z.string().min(1, "Language B is required").max(50),
   tags: z.array(z.string()).default([]),

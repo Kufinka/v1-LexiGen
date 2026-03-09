@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
@@ -15,6 +15,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import {
   ArrowLeft,
@@ -23,13 +31,39 @@ import {
   Undo2,
   CheckCircle2,
   RefreshCw,
+  ArrowLeftRight,
+  Info,
 } from "lucide-react";
+import { calculateSRS } from "@/lib/srs";
 
 interface StudyCard {
   id: string;
   sideA: string;
   sideB: string;
   type: "WORD" | "SENTENCE";
+  easeFactor: number;
+  interval: number;
+  repetitions: number;
+}
+
+interface HistoryEntry {
+  card: StudyCard;
+  rating: number;
+  prevEF: number;
+  prevInterval: number;
+  prevReps: number;
+}
+
+function getNextReviewLabel(card: StudyCard, rating: number): string {
+  const result = calculateSRS(
+    { easeFactor: card.easeFactor, interval: card.interval, repetitions: card.repetitions },
+    rating
+  );
+  if (result.interval === 0) return "< 1 min";
+  if (result.interval === 1) return "1 day";
+  if (result.interval < 30) return `${result.interval} days`;
+  if (result.interval < 365) return `${Math.round(result.interval / 30)} mo`;
+  return `${Math.round(result.interval / 365)} yr`;
 }
 
 export default function StudyPage() {
@@ -44,10 +78,14 @@ export default function StudyPage() {
   const [flipped, setFlipped] = useState(false);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("mixed");
+  const [direction, setDirection] = useState<"a2b" | "b2a">("a2b");
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const [history, setHistory] = useState<{ card: StudyCard; rating: number }[]>([]);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [completed, setCompleted] = useState(false);
   const [reviewCount, setReviewCount] = useState(0);
+  const [resetDialogOpen, setResetDialogOpen] = useState(false);
+  const [srsInfoOpen, setSrsInfoOpen] = useState(false);
+  const sessionStartRef = useRef<number>(Date.now());
 
   const x = useMotionValue(0);
   const rotate = useTransform(x, [-200, 200], [-25, 25]);
@@ -85,38 +123,85 @@ export default function StudyPage() {
       if (res.ok) {
         const data = await res.json();
         setSessionId(data.id);
+        sessionStartRef.current = Date.now();
       }
     } catch {
       // Session tracking is optional
     }
   }, []);
 
+  const endSession = useCallback(async () => {
+    if (sessionId) {
+      try {
+        await fetch(`/api/sessions/${sessionId}`, { method: "PATCH" });
+      } catch {
+        // ignore
+      }
+    }
+  }, [sessionId]);
+
   useEffect(() => {
     if (session) {
       fetchCards();
       startSession();
     }
-  }, [session, filter, fetchCards, startSession]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, filter]);
+
+  // End session when user leaves the page
+  useEffect(() => {
+    const handleBeforeUnload = () => { endSession(); };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      endSession();
+    };
+  }, [endSession]);
 
   const reviewCard = async (rating: number) => {
     const currentCard = cards[currentIndex];
     if (!currentCard) return;
 
     try {
-      await fetch(`/api/decks/${deckId}/study`, {
+      const res = await fetch(`/api/decks/${deckId}/study`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ cardId: currentCard.id, rating, sessionId }),
       });
 
-      setHistory((prev) => [...prev, { card: currentCard, rating }]);
+      if (!res.ok) {
+        toast({ title: "Error", description: "Failed to save review", variant: "destructive" });
+        return;
+      }
+
+      const { card: updatedCard } = await res.json();
+
+      // Store previous SRS state for undo
+      setHistory((prev) => [
+        ...prev,
+        {
+          card: currentCard,
+          rating,
+          prevEF: currentCard.easeFactor,
+          prevInterval: currentCard.interval,
+          prevReps: currentCard.repetitions,
+        },
+      ]);
+
+      // Update the card's SRS values in local state
+      setCards((prev) =>
+        prev.map((c) =>
+          c.id === currentCard.id
+            ? { ...c, easeFactor: updatedCard.easeFactor, interval: updatedCard.interval, repetitions: updatedCard.repetitions }
+            : c
+        )
+      );
+
       setReviewCount((prev) => prev + 1);
 
       if (currentIndex + 1 >= cards.length) {
         setCompleted(true);
-        if (sessionId) {
-          await fetch(`/api/sessions/${sessionId}`, { method: "PATCH" });
-        }
+        endSession();
       } else {
         setCurrentIndex((prev) => prev + 1);
         setFlipped(false);
@@ -129,6 +214,25 @@ export default function StudyPage() {
   const undoLast = async () => {
     if (history.length === 0) return;
     const lastEntry = history[history.length - 1];
+
+    try {
+      // Revert the card's SRS state on the server
+      await fetch(`/api/decks/${deckId}/cards/${lastEntry.card.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sideA: lastEntry.card.sideA,
+          sideB: lastEntry.card.sideB,
+          type: lastEntry.card.type,
+          easeFactor: lastEntry.prevEF,
+          interval: lastEntry.prevInterval,
+          repetitions: lastEntry.prevReps,
+        }),
+      });
+    } catch {
+      // Continue with local undo even if server fails
+    }
+
     setHistory((prev) => prev.slice(0, -1));
     setReviewCount((prev) => Math.max(0, prev - 1));
 
@@ -136,7 +240,15 @@ export default function StudyPage() {
       setCompleted(false);
     }
 
-    // Find the card index and go back
+    // Restore local SRS values and go back
+    setCards((prev) =>
+      prev.map((c) =>
+        c.id === lastEntry.card.id
+          ? { ...c, easeFactor: lastEntry.prevEF, interval: lastEntry.prevInterval, repetitions: lastEntry.prevReps }
+          : c
+      )
+    );
+
     const idx = cards.findIndex((c) => c.id === lastEntry.card.id);
     if (idx !== -1) {
       setCurrentIndex(idx);
@@ -145,7 +257,7 @@ export default function StudyPage() {
   };
 
   const resetDeck = async () => {
-    if (!confirm("Reset all SRS progress for this deck? This cannot be undone.")) return;
+    setResetDialogOpen(false);
     try {
       const res = await fetch(`/api/decks/${deckId}/reset`, { method: "POST" });
       if (res.ok) {
@@ -160,9 +272,9 @@ export default function StudyPage() {
   const handleDragEnd = () => {
     const xVal = x.get();
     if (xVal > 100) {
-      reviewCard(4); // Right swipe = Easy
+      reviewCard(4);
     } else if (xVal < -100) {
-      reviewCard(1); // Left swipe = Again
+      reviewCard(1);
     }
     x.set(0);
   };
@@ -179,6 +291,11 @@ export default function StudyPage() {
   }
 
   const currentCard = cards[currentIndex];
+  const progressPercent = cards.length > 0 ? (reviewCount / cards.length) * 100 : 0;
+
+  // Determine which side to show based on direction
+  const frontSide = direction === "a2b" ? "sideA" : "sideB";
+  const backSide = direction === "a2b" ? "sideB" : "sideA";
 
   return (
     <div className="min-h-screen">
@@ -192,6 +309,14 @@ export default function StudyPage() {
             </Button>
           </Link>
           <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => setDirection((d) => (d === "a2b" ? "b2a" : "a2b"))}
+              title={direction === "a2b" ? "A → B" : "B → A"}
+            >
+              <ArrowLeftRight className="h-4 w-4" />
+            </Button>
             <Select value={filter} onValueChange={setFilter}>
               <SelectTrigger className="w-32">
                 <SelectValue />
@@ -202,22 +327,30 @@ export default function StudyPage() {
                 <SelectItem value="sentences">Sentences Only</SelectItem>
               </SelectContent>
             </Select>
-            <Button variant="outline" size="icon" onClick={resetDeck} title="Reset Deck Progress">
+            <Button variant="outline" size="icon" onClick={() => setSrsInfoOpen(true)} title="SRS Info">
+              <Info className="h-4 w-4" />
+            </Button>
+            <Button variant="outline" size="icon" onClick={() => setResetDialogOpen(true)} title="Reset Deck Progress">
               <RefreshCw className="h-4 w-4" />
             </Button>
           </div>
+        </div>
+
+        {/* Direction indicator */}
+        <div className="text-center text-xs text-muted-foreground mb-2">
+          Direction: {direction === "a2b" ? "A → B" : "B → A"}
         </div>
 
         {/* Progress */}
         <div className="mb-6">
           <div className="flex items-center justify-between text-sm text-muted-foreground mb-2">
             <span>{reviewCount} reviewed</span>
-            <span>{currentIndex + 1} / {cards.length}</span>
+            <span>{Math.min(currentIndex + 1, cards.length)} / {cards.length}</span>
           </div>
           <div className="w-full bg-muted rounded-full h-2">
             <div
               className="bg-primary rounded-full h-2 transition-all"
-              style={{ width: `${cards.length > 0 ? ((currentIndex) / cards.length) * 100 : 0}%` }}
+              style={{ width: `${Math.min(progressPercent, 100)}%` }}
             />
           </div>
         </div>
@@ -230,7 +363,7 @@ export default function StudyPage() {
               You reviewed {reviewCount} card{reviewCount !== 1 ? "s" : ""}.
             </p>
             <div className="flex gap-2 justify-center">
-              <Button onClick={fetchCards} className="gap-2">
+              <Button onClick={() => { fetchCards(); startSession(); }} className="gap-2">
                 <RotateCcw className="h-4 w-4" />
                 Study Again
               </Button>
@@ -260,7 +393,7 @@ export default function StudyPage() {
             {/* Card */}
             <AnimatePresence mode="wait">
               <motion.div
-                key={currentCard.id}
+                key={currentCard.id + direction}
                 style={{ x, rotate, opacity }}
                 drag="x"
                 dragConstraints={{ left: 0, right: 0 }}
@@ -274,10 +407,10 @@ export default function StudyPage() {
                 >
                   <CardContent className="text-center p-8">
                     <p className="text-xs text-muted-foreground mb-4 uppercase tracking-wider">
-                      {flipped ? "Side B" : "Side A"} &middot; {currentCard.type}
+                      {flipped ? (direction === "a2b" ? "Side B" : "Side A") : (direction === "a2b" ? "Side A" : "Side B")} &middot; {currentCard.type}
                     </p>
                     <p className="text-2xl sm:text-3xl font-semibold">
-                      {flipped ? currentCard.sideB : currentCard.sideA}
+                      {flipped ? currentCard[backSide] : currentCard[frontSide]}
                     </p>
                     <p className="text-sm text-muted-foreground mt-6">
                       {flipped ? "Click to see front" : "Click to reveal answer"}
@@ -287,7 +420,7 @@ export default function StudyPage() {
               </motion.div>
             </AnimatePresence>
 
-            {/* Rating Buttons */}
+            {/* Rating Buttons with SRS time hints */}
             <div className="grid grid-cols-4 gap-2 mt-6">
               <Button
                 variant="outline"
@@ -296,6 +429,7 @@ export default function StudyPage() {
               >
                 <span className="text-lg font-bold">1</span>
                 <span className="text-xs text-muted-foreground">Again</span>
+                <span className="text-[10px] text-muted-foreground/70">{getNextReviewLabel(currentCard, 1)}</span>
               </Button>
               <Button
                 variant="outline"
@@ -304,6 +438,7 @@ export default function StudyPage() {
               >
                 <span className="text-lg font-bold">2</span>
                 <span className="text-xs text-muted-foreground">Hard</span>
+                <span className="text-[10px] text-muted-foreground/70">{getNextReviewLabel(currentCard, 2)}</span>
               </Button>
               <Button
                 variant="outline"
@@ -312,6 +447,7 @@ export default function StudyPage() {
               >
                 <span className="text-lg font-bold">3</span>
                 <span className="text-xs text-muted-foreground">Good</span>
+                <span className="text-[10px] text-muted-foreground/70">{getNextReviewLabel(currentCard, 3)}</span>
               </Button>
               <Button
                 variant="outline"
@@ -320,6 +456,7 @@ export default function StudyPage() {
               >
                 <span className="text-lg font-bold">4</span>
                 <span className="text-xs text-muted-foreground">Easy</span>
+                <span className="text-[10px] text-muted-foreground/70">{getNextReviewLabel(currentCard, 4)}</span>
               </Button>
             </div>
 
@@ -334,18 +471,65 @@ export default function StudyPage() {
             )}
 
             <p className="text-center text-xs text-muted-foreground mt-4">
-              Swipe left = Again &middot; Swipe right = Easy &middot; Or use buttons below
+              Swipe left = Again &middot; Swipe right = Easy &middot; Or use buttons
             </p>
           </div>
         ) : (
           <div className="text-center py-20">
             <p className="text-muted-foreground">No cards due for review. Check back later or reset the deck!</p>
-            <Button variant="outline" className="mt-4" onClick={resetDeck}>
+            <Button variant="outline" className="mt-4" onClick={() => setResetDialogOpen(true)}>
               Reset Progress
             </Button>
           </div>
         )}
       </div>
+
+      {/* Reset Confirm Dialog */}
+      <Dialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reset Progress</DialogTitle>
+            <DialogDescription>
+              This will reset all SRS progress for this deck. All cards will be due for review again. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setResetDialogOpen(false)}>Cancel</Button>
+            <Button variant="destructive" onClick={resetDeck}>Reset</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* SRS Info Dialog */}
+      <Dialog open={srsInfoOpen} onOpenChange={setSrsInfoOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>How Spaced Repetition Works</DialogTitle>
+            <DialogDescription>The SM-2 algorithm schedules reviews at optimal intervals.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-4 text-sm">
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900">
+              <span className="font-bold text-red-600 dark:text-red-400 min-w-[60px]">1 Again</span>
+              <span className="text-muted-foreground">Card resets to the beginning. You&apos;ll see it again immediately in the next session. The ease factor decreases.</span>
+            </div>
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-900">
+              <span className="font-bold text-orange-600 dark:text-orange-400 min-w-[60px]">2 Hard</span>
+              <span className="text-muted-foreground">The interval is reduced by ~20%. Next review comes sooner than normal. Ease factor slightly decreases.</span>
+            </div>
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900">
+              <span className="font-bold text-blue-600 dark:text-blue-400 min-w-[60px]">3 Good</span>
+              <span className="text-muted-foreground">Normal progression. Interval grows based on the current ease factor. First review: 1 day, second: 6 days, then multiplied by ease.</span>
+            </div>
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-900">
+              <span className="font-bold text-green-600 dark:text-green-400 min-w-[60px]">4 Easy</span>
+              <span className="text-muted-foreground">The interval gets a 30% bonus. You won&apos;t see this card for a longer time. Ease factor increases.</span>
+            </div>
+            <p className="text-xs text-muted-foreground pt-2">
+              The time shown under each button is the estimated next review date based on the card&apos;s current state.
+            </p>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
