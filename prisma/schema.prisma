@@ -1,0 +1,131 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  username      String    @unique
+  email         String    @unique
+  passwordHash  String
+  image         String?
+  bio           String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  decks         Deck[]
+  ratings       DeckRating[]
+  comments      DeckComment[]
+  studySessions StudySession[]
+}
+
+model Deck {
+  id          String   @id @default(cuid())
+  name        String
+  languageA   String
+  languageB   String
+  tags        String[]
+  isPublic    Boolean  @default(false)
+  isClone     Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  cards       Card[]
+  ratings     DeckRating[]
+  comments    DeckComment[]
+
+  @@index([userId])
+  @@index([isPublic])
+}
+
+model Card {
+  id          String   @id @default(cuid())
+  sideA       String
+  sideB       String
+  type        CardType
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // SRS fields
+  easeFactor  Float    @default(2.5)
+  interval    Int      @default(0)
+  repetitions Int      @default(0)
+  nextReview  DateTime @default(now())
+
+  deckId      String
+  deck        Deck     @relation(fields: [deckId], references: [id], onDelete: Cascade)
+
+  reviews     CardReview[]
+
+  @@index([deckId])
+  @@index([nextReview])
+}
+
+model CardReview {
+  id        String   @id @default(cuid())
+  rating    Int
+  createdAt DateTime @default(now())
+
+  cardId    String
+  card      Card     @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  sessionId String?
+  session   StudySession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+
+  @@index([cardId])
+  @@index([createdAt])
+}
+
+model StudySession {
+  id        String   @id @default(cuid())
+  startedAt DateTime @default(now())
+  endedAt   DateTime?
+  
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  reviews   CardReview[]
+
+  @@index([userId])
+  @@index([startedAt])
+}
+
+model DeckRating {
+  id        String   @id @default(cuid())
+  score     Int
+  createdAt DateTime @default(now())
+
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  deckId    String
+  deck      Deck     @relation(fields: [deckId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, deckId])
+}
+
+model DeckComment {
+  id        String   @id @default(cuid())
+  content   String
+  createdAt DateTime @default(now())
+
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  deckId    String
+  deck      Deck     @relation(fields: [deckId], references: [id], onDelete: Cascade)
+
+  @@index([deckId])
+}
+
+enum CardType {
+  WORD
+  SENTENCE
+}

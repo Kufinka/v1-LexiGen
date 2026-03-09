@@ -1,101 +1,121 @@
-import Image from "next/image";
+import Link from "next/link";
+import { Navbar } from "@/components/navbar";
+import { Button } from "@/components/ui/button";
+import { BookOpen, Brain, Users, BarChart3, Sparkles, Zap } from "lucide-react";
 
-export default function Home() {
+const features = [
+  {
+    icon: BookOpen,
+    title: "Bilingual Decks",
+    description: "Create flashcard decks with any two languages. Add words and sentences to master vocabulary.",
+  },
+  {
+    icon: Brain,
+    title: "Spaced Repetition",
+    description: "SM-2 algorithm ensures you review cards at optimal intervals for maximum retention.",
+  },
+  {
+    icon: Sparkles,
+    title: "AI Sentences",
+    description: "Generate natural sentences using your saved words with AI-powered context generation.",
+  },
+  {
+    icon: Zap,
+    title: "Swipe Study",
+    description: "Tinder-style card swiping for quick reviews, plus detailed 1-4 rating for precise SRS control.",
+  },
+  {
+    icon: Users,
+    title: "Community",
+    description: "Share your decks publicly. Browse, rate, comment, and clone decks from other learners.",
+  },
+  {
+    icon: BarChart3,
+    title: "Analytics",
+    description: "Track your study streaks, daily reviews, and time spent with beautiful interactive charts.",
+  },
+];
+
+export default function LandingPage() {
   return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="https://nextjs.org/icons/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
+    <div className="min-h-screen">
+      <Navbar />
+      <main>
+        {/* Hero */}
+        <section className="relative overflow-hidden py-20 sm:py-32">
+          <div className="absolute inset-0 -z-10">
+            <div className="absolute top-1/4 left-1/4 w-72 h-72 bg-primary/20 rounded-full blur-3xl" />
+            <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-pink-300/20 dark:bg-pink-500/10 rounded-full blur-3xl" />
+          </div>
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+            <h1 className="text-4xl sm:text-6xl lg:text-7xl font-bold tracking-tight">
+              Master Languages with{" "}
+              <span className="bg-gradient-to-r from-primary via-pink-400 to-rose-400 bg-clip-text text-transparent">
+                LexiGen
+              </span>
+            </h1>
+            <p className="mt-6 text-lg sm:text-xl text-muted-foreground max-w-2xl mx-auto text-balance">
+              AI-powered flashcards with spaced repetition. Create bilingual decks, swipe to study,
+              generate sentences, and learn with the community.
+            </p>
+            <div className="mt-10 flex items-center justify-center gap-4">
+              <Link href="/register">
+                <Button size="lg" className="text-lg px-8 py-6 rounded-xl shadow-lg shadow-primary/25">
+                  Get Started Free
+                </Button>
+              </Link>
+              <Link href="/login">
+                <Button variant="outline" size="lg" className="text-lg px-8 py-6 rounded-xl glass">
+                  Sign In
+                </Button>
+              </Link>
+            </div>
+          </div>
+        </section>
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="https://nextjs.org/icons/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
-        </div>
+        {/* Features */}
+        <section className="py-20">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="text-center mb-16">
+              <h2 className="text-3xl sm:text-4xl font-bold">Everything You Need to Learn</h2>
+              <p className="mt-4 text-muted-foreground text-lg">
+                Powerful tools designed for effective language learning
+              </p>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {features.map((feature) => (
+                <div
+                  key={feature.title}
+                  className="glass-card rounded-2xl p-6 hover:scale-[1.02] transition-transform duration-200"
+                >
+                  <div className="h-12 w-12 rounded-xl bg-primary/10 flex items-center justify-center mb-4">
+                    <feature.icon className="h-6 w-6 text-primary" />
+                  </div>
+                  <h3 className="text-xl font-semibold mb-2">{feature.title}</h3>
+                  <p className="text-muted-foreground">{feature.description}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* CTA */}
+        <section className="py-20">
+          <div className="max-w-4xl mx-auto px-4 text-center">
+            <div className="glass-card rounded-3xl p-12">
+              <h2 className="text-3xl sm:text-4xl font-bold mb-4">Ready to Start Learning?</h2>
+              <p className="text-muted-foreground text-lg mb-8">
+                Join LexiGen today and transform how you learn languages.
+              </p>
+              <Link href="/register">
+                <Button size="lg" className="text-lg px-8 py-6 rounded-xl">
+                  Create Free Account
+                </Button>
+              </Link>
+            </div>
+          </div>
+        </section>
       </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
     </div>
   );
 }
