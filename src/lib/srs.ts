@@ -48,15 +48,15 @@ export function calculateSRS(card: SRSCard, rating: number): SRSResult {
     if (rating === 2) {
       newIntervalMin = 5;           // Hard: 5 min
     } else if (rating === 3) {
-      newIntervalMin = 5 * 60;      // Good: 5 hours
+      newIntervalMin = 5 * 60;      // Good: 5 hours (300 min)
     } else {
-      newIntervalMin = 24 * 60;     // Easy: 1 day
+      newIntervalMin = 24 * 60;     // Easy: 1 day (1440 min)
     }
   } else if (repetitions === 1) {
     // Second successful review
     newRepetitions = 2;
     if (rating === 2) {
-      newIntervalMin = 30;           // Hard: 30 min
+      newIntervalMin = 7;           // Hard: 7 min (gradual from 5)
     } else if (rating === 3) {
       newIntervalMin = 24 * 60;      // Good: 1 day
     } else {
@@ -66,18 +66,21 @@ export function calculateSRS(card: SRSCard, rating: number): SRSResult {
     // Third successful review
     newRepetitions = 3;
     if (rating === 2) {
-      newIntervalMin = 8 * 60;       // Hard: 8 hours
+      newIntervalMin = 10;          // Hard: 10 min (gradual from 7)
     } else if (rating === 3) {
       newIntervalMin = 3 * 24 * 60;  // Good: 3 days
     } else {
       newIntervalMin = 7 * 24 * 60;  // Easy: 7 days
     }
   } else {
-    // Subsequent reviews — multiply previous interval by ease factor
+    // Subsequent reviews — multiply previous interval
     newRepetitions = repetitions + 1;
     const prevMin = interval > 0 ? interval : 1;
     if (rating === 2) {
-      newIntervalMin = Math.max(60, Math.round(prevMin * 1.2));        // Hard: modest growth
+      // Hard: very gradual growth — 1.2x but capped to prevent big jumps
+      newIntervalMin = Math.round(prevMin * 1.2);
+      // Floor: at least previous + 2 minutes to always show visible growth
+      newIntervalMin = Math.max(newIntervalMin, prevMin + 2);
     } else if (rating === 3) {
       newIntervalMin = Math.round(prevMin * newEF);                    // Good: normal growth
     } else {

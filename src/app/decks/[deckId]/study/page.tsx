@@ -91,10 +91,8 @@ export default function StudyPage() {
   const [reviewCount, setReviewCount] = useState(0);
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
   const [srsInfoOpen, setSrsInfoOpen] = useState(false);
-  const [waitingForAgain, setWaitingForAgain] = useState(false);
   const sessionStartRef = useRef<number>(Date.now());
   const againCardIds = useRef<Set<string>>(new Set());
-  const againTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const x = useMotionValue(0);
   const rotate = useTransform(x, [-200, 200], [-25, 25]);
@@ -119,8 +117,6 @@ export default function StudyPage() {
         setCompleted(data.length === 0);
         setReviewCount(0);
         againCardIds.current.clear();
-        setWaitingForAgain(false);
-        if (againTimerRef.current) clearTimeout(againTimerRef.current);
       }
     } catch {
       toast({ title: "Error", description: "Failed to load study cards", variant: "destructive" });
@@ -189,60 +185,20 @@ export default function StudyPage() {
     };
   }, [endSession, sessionId]);
 
-  // Check if any Again cards are now due and re-queue them
-  const checkForAgainCards = async () => {
-    setWaitingForAgain(true);
-    try {
-      const res = await fetch(`/api/decks/${deckId}/study?filter=${filter}`);
-      if (res.ok) {
-        const dueCards: StudyCard[] = await res.json();
-        if (dueCards.length > 0) {
-          // Found due cards (likely Again cards) — continue session
-          setCards(dueCards);
-          setCurrentIndex(0);
-          setFlipped(false);
-          againCardIds.current.clear();
-          setWaitingForAgain(false);
-          return;
-        }
-      }
-    } catch {
-      // ignore fetch errors
-    }
-
-    // No cards due yet — wait a bit and retry (Again interval is <1 min)
-    if (againTimerRef.current) clearTimeout(againTimerRef.current);
-    againTimerRef.current = setTimeout(async () => {
-      try {
-        const res = await fetch(`/api/decks/${deckId}/study?filter=${filter}`);
-        if (res.ok) {
-          const dueCards: StudyCard[] = await res.json();
-          if (dueCards.length > 0) {
-            setCards(dueCards);
-            setCurrentIndex(0);
-            setFlipped(false);
-            againCardIds.current.clear();
-            setWaitingForAgain(false);
-            return;
-          }
-        }
-      } catch {
-        // ignore
-      }
-      // Still no cards — complete the session
+  // Re-queue Again cards immediately from local state — no waiting
+  const requeueAgainCards = () => {
+    const againIds = againCardIds.current;
+    const againCards = cards.filter((c) => againIds.has(c.id));
+    if (againCards.length > 0) {
+      setCards(againCards);
+      setCurrentIndex(0);
+      setFlipped(false);
       againCardIds.current.clear();
-      setWaitingForAgain(false);
+    } else {
       setCompleted(true);
       endSession();
-    }, 60000); // Wait up to 60 seconds for Again cards to become due
+    }
   };
-
-  // Cleanup again timer on unmount
-  useEffect(() => {
-    return () => {
-      if (againTimerRef.current) clearTimeout(againTimerRef.current);
-    };
-  }, []);
 
   const reviewCard = async (rating: number) => {
     const currentCard = cards[currentIndex];
@@ -292,9 +248,9 @@ export default function StudyPage() {
       }
 
       if (currentIndex + 1 >= cards.length) {
-        // Check if any Again cards might be due soon
+        // Re-queue Again cards immediately if any exist
         if (againCardIds.current.size > 0) {
-          checkForAgainCards();
+          requeueAgainCards();
         } else {
           setCompleted(true);
           endSession();
@@ -370,9 +326,9 @@ export default function StudyPage() {
   const handleDragEnd = () => {
     const xVal = x.get();
     if (xVal > 100) {
-      reviewCard(4);
+      reviewCard(2); // Swipe right = Hard
     } else if (xVal < -100) {
-      reviewCard(2);
+      reviewCard(1); // Swipe left = Again
     }
     x.set(0);
   };
@@ -453,22 +409,7 @@ export default function StudyPage() {
           </div>
         </div>
 
-        {waitingForAgain ? (
-          <div className="text-center py-20">
-            <Loader2 className="h-12 w-12 animate-spin text-primary mx-auto mb-4" />
-            <h2 className="text-xl font-semibold mb-2">Waiting for Again cards...</h2>
-            <p className="text-muted-foreground mb-6">Cards marked &ldquo;Again&rdquo; will reappear in under 1 minute.</p>
-            <Button variant="outline" onClick={() => {
-              if (againTimerRef.current) clearTimeout(againTimerRef.current);
-              againCardIds.current.clear();
-              setWaitingForAgain(false);
-              setCompleted(true);
-              endSession();
-            }}>
-              End Session Now
-            </Button>
-          </div>
-        ) : completed ? (
+        {completed ? (
           <div className="text-center py-20">
             <CheckCircle2 className="h-16 w-16 text-green-500 mx-auto mb-4" />
             <h2 className="text-2xl font-bold mb-2">Session Complete!</h2>
@@ -495,11 +436,11 @@ export default function StudyPage() {
           <div>
             {/* Swipe indicators */}
             <div className="flex justify-between mb-4 px-4">
-              <motion.div style={{ opacity: leftIndicator }} className="text-orange-500 font-bold text-lg">
-                Hard
+              <motion.div style={{ opacity: leftIndicator }} className="text-red-500 font-bold text-lg">
+                Again
               </motion.div>
-              <motion.div style={{ opacity: rightIndicator }} className="text-green-500 font-bold text-lg">
-                Easy
+              <motion.div style={{ opacity: rightIndicator }} className="text-orange-500 font-bold text-lg">
+                Hard
               </motion.div>
             </div>
 
@@ -584,7 +525,7 @@ export default function StudyPage() {
             )}
 
             <p className="text-center text-xs text-muted-foreground mt-4">
-              Swipe left = Hard &middot; Swipe right = Easy &middot; Or use buttons
+              Swipe left = Again &middot; Swipe right = Hard &middot; Or use buttons
             </p>
           </div>
         ) : (
@@ -623,11 +564,11 @@ export default function StudyPage() {
           <div className="space-y-3 py-4 text-sm">
             <div className="flex items-start gap-3 p-3 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900">
               <span className="font-bold text-red-600 dark:text-red-400 min-w-[60px]">1 Again</span>
-              <span className="text-muted-foreground">Card resets. You&apos;ll see it again in under 1 minute. Use this when you completely forgot the answer.</span>
+              <span className="text-muted-foreground">Card resets. You&apos;ll see it again in under 1 minute. Use this when you completely forgot the answer. Also triggered by swiping left.</span>
             </div>
             <div className="flex items-start gap-3 p-3 rounded-lg bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-900">
               <span className="font-bold text-orange-600 dark:text-orange-400 min-w-[60px]">2 Hard</span>
-              <span className="text-muted-foreground">You recalled it with difficulty. First time: 5 min, then grows slowly. Also triggered by swiping left.</span>
+              <span className="text-muted-foreground">You recalled it with difficulty. First time: 5 min, then grows slowly. Also triggered by swiping right.</span>
             </div>
             <div className="flex items-start gap-3 p-3 rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900">
               <span className="font-bold text-blue-600 dark:text-blue-400 min-w-[60px]">3 Good</span>
@@ -635,7 +576,7 @@ export default function StudyPage() {
             </div>
             <div className="flex items-start gap-3 p-3 rounded-lg bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-900">
               <span className="font-bold text-green-600 dark:text-green-400 min-w-[60px]">4 Easy</span>
-              <span className="text-muted-foreground">Instant recall. First time: 1 day, then 3 days, 7 days, and grows faster. Also triggered by swiping right.</span>
+              <span className="text-muted-foreground">Instant recall. First time: 1 day, then 3 days, 7 days, and grows faster.</span>
             </div>
             <p className="text-xs text-muted-foreground pt-2">
               The time shown under each button is the estimated next review date based on the card&apos;s current state.

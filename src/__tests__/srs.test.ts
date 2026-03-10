@@ -29,6 +29,20 @@ describe("SRS Algorithm (minute-based intervals for fast vocab learning)", () =>
     expect(result.repetitions).toBe(1);
   });
 
+  it("Hard second review should be 7 min (gradual from 5)", () => {
+    const card = { easeFactor: 2.5, interval: 5, repetitions: 1 };
+    const result = calculateSRS(card, 2);
+    expect(result.interval).toBe(7);
+    expect(result.repetitions).toBe(2);
+  });
+
+  it("Hard third review should be 10 min (gradual from 7)", () => {
+    const card = { easeFactor: 2.5, interval: 7, repetitions: 2 };
+    const result = calculateSRS(card, 2);
+    expect(result.interval).toBe(10);
+    expect(result.repetitions).toBe(3);
+  });
+
   it("Good second review should be 1 day", () => {
     const card = { easeFactor: 2.5, interval: 300, repetitions: 1 };
     const result = calculateSRS(card, 3);
@@ -41,6 +55,13 @@ describe("SRS Algorithm (minute-based intervals for fast vocab learning)", () =>
     const result = calculateSRS(card, 3);
     expect(result.interval).toBeGreaterThan(1440);
     expect(result.repetitions).toBe(3);
+  });
+
+  it("Hard subsequent reviews should grow gradually (1.2x)", () => {
+    const card = { easeFactor: 2.5, interval: 10, repetitions: 3 };
+    const result = calculateSRS(card, 2);
+    expect(result.interval).toBe(12);
+    expect(result.repetitions).toBe(4);
   });
 
   it("should decrease ease factor on hard ratings", () => {

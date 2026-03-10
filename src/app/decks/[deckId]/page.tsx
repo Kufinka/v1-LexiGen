@@ -39,6 +39,7 @@ import {
   Upload,
   Settings2,
   Copy,
+  Clock,
 } from "lucide-react";
 import JSZip from "jszip";
 import initSqlJs from "sql.js";
@@ -66,6 +67,24 @@ interface DeckDetail {
   createdAt: string;
   cards: CardItem[];
   _count: { cards: number };
+}
+
+function getNextReviewText(nextReview: string): { label: string; isDue: boolean } {
+  const now = new Date();
+  const next = new Date(nextReview);
+  if (next <= now) return { label: "Due now", isDue: true };
+  const diffMs = next.getTime() - now.getTime();
+  const diffMin = Math.round(diffMs / 60000);
+  if (diffMin <= 1) return { label: "<1 min", isDue: false };
+  if (diffMin < 60) return { label: `${diffMin} min`, isDue: false };
+  const diffHr = Math.round(diffMin / 60);
+  if (diffHr < 24) return { label: `${diffHr} hr`, isDue: false };
+  const diffDays = Math.round(diffHr / 24);
+  if (diffDays === 1) return { label: "1 day", isDue: false };
+  if (diffDays < 30) return { label: `${diffDays} days`, isDue: false };
+  const diffMo = Math.round(diffDays / 30);
+  if (diffMo < 12) return { label: `${diffMo} mo`, isDue: false };
+  return { label: `${Math.round(diffDays / 365)} yr`, isDue: false };
 }
 
 export default function DeckDetailPage() {
@@ -191,7 +210,7 @@ export default function DeckDetailPage() {
 
   const saveDeckEdit = async () => {
     if (!deck) return;
-    const rawTags = editingDeck.tags.split(",").map((t) => t.trim()).filter(Boolean);
+    const rawTags = editingDeck.tags.split(",").map((t) => t.trim().toLowerCase()).filter(Boolean);
     const tooLong = rawTags.find((t) => t.length > 20);
     if (tooLong) {
       toast({ title: "Tag too long", description: `"${tooLong}" exceeds 20 characters. Please shorten it.`, variant: "destructive" });
@@ -204,7 +223,7 @@ export default function DeckDetailPage() {
         body: JSON.stringify({
           name: editingDeck.name,
           description: editingDeck.description || undefined,
-          tags: rawTags,
+          tags: Array.from(new Set(rawTags)),
         }),
       });
       if (res.ok) {
@@ -767,7 +786,7 @@ export default function DeckDetailPage() {
             deck.cards.map((card) => (
               <Card key={card.id} className="glass-card">
                 <CardContent className="flex items-center justify-between py-4 px-6">
-                  <div className="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-2 items-center">
+                  <div className="flex-1 grid grid-cols-1 sm:grid-cols-4 gap-2 items-center">
                     <p className="font-medium">{card.sideA}</p>
                     <p className="text-muted-foreground">{card.sideB}</p>
                     <div className="flex items-center gap-2">
@@ -775,6 +794,15 @@ export default function DeckDetailPage() {
                         {card.type}
                       </Badge>
                     </div>
+                    {(() => {
+                      const { label, isDue } = getNextReviewText(card.nextReview);
+                      return (
+                        <span className={`flex items-center gap-1 text-xs ${isDue ? "text-primary font-medium" : "text-muted-foreground"}`}>
+                          <Clock className="h-3 w-3" />
+                          {label}
+                        </span>
+                      );
+                    })()}
                   </div>
                   <div className="flex items-center gap-1 ml-4">
                     <Button

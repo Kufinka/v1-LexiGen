@@ -8,6 +8,14 @@ export type AvatarConfig = Required<AvatarFullConfig>;
 export const SEX_OPTIONS = ["man", "woman"] as const;
 export const EAR_SIZE_OPTIONS = ["small", "big"] as const;
 export const HAIR_STYLE_OPTIONS = ["normal", "thick", "mohawk", "womanLong", "womanShort"] as const;
+
+export const HAIR_STYLE_LABELS: Record<string, string> = {
+  normal: "Normal",
+  thick: "Thick",
+  mohawk: "Mohawk",
+  womanLong: "Woman Long",
+  womanShort: "Woman Short",
+};
 export const HAT_STYLE_OPTIONS = ["none", "beanie", "turban"] as const;
 export const EYE_STYLE_OPTIONS = ["circle", "oval", "smile"] as const;
 export const GLASSES_STYLE_OPTIONS = ["none", "round", "square"] as const;
@@ -30,8 +38,29 @@ export const HAIR_COLORS = [
   "#E8E1E1", "#FC909F", "#6366f1", "#10b981",
 ];
 
+// Fixed default avatar — deterministic so it doesn't change on every render
+const FIXED_DEFAULT: AvatarFullConfig = {
+  sex: "man",
+  faceColor: "#F9C9B6",
+  earSize: "small",
+  hairColor: "#000000",
+  hairStyle: "normal",
+  hairColorRandom: false,
+  hatColor: "#000000",
+  hatStyle: "none",
+  eyeStyle: "circle",
+  glassesStyle: "none",
+  noseStyle: "short",
+  mouthStyle: "smile",
+  shirtStyle: "hoody",
+  shirtColor: "#6366f1",
+  bgColor: "#6366f1",
+  isGradient: false,
+  eyeBrowStyle: "up",
+};
+
 export function generateDefaultAvatar(): AvatarConfig {
-  return genConfig();
+  return genConfig(FIXED_DEFAULT);
 }
 
 export function generateRandomAvatar(): AvatarConfig {
@@ -46,9 +75,9 @@ export function parseAvatarConfig(imageStr: string | null | undefined): AvatarCo
       // It's a react-nice-avatar config — ensure all fields exist
       return genConfig(parsed);
     }
-    // Legacy format (old animal or humanoid avatars) — generate a fresh one deterministically
+    // Legacy format (old animal or humanoid avatars) — return fixed default
     if (typeof parsed === "object" && ("animal" in parsed || "base" in parsed || "eyes" in parsed)) {
-      return genConfig();
+      return genConfig(FIXED_DEFAULT);
     }
   } catch {
     // Not an avatar config string

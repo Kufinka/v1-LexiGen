@@ -128,7 +128,7 @@ export default function DecksPage() {
   const MAX_TAG_LENGTH = 20;
 
   const createDeck = async () => {
-    const rawTags = newDeck.tags.split(",").map((t) => t.trim()).filter(Boolean);
+    const rawTags = newDeck.tags.split(",").map((t) => t.trim().toLowerCase()).filter(Boolean);
     const tooLong = rawTags.find((t) => t.length > MAX_TAG_LENGTH);
     if (tooLong) {
       toast({ title: "Tag too long", description: `"${tooLong}" exceeds ${MAX_TAG_LENGTH} characters. Please shorten it.`, variant: "destructive" });
@@ -136,7 +136,7 @@ export default function DecksPage() {
     }
     setCreating(true);
     try {
-      const tags = rawTags;
+      const tags = Array.from(new Set(rawTags));
       const res = await fetch("/api/decks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -202,9 +202,9 @@ export default function DecksPage() {
   };
 
   const getDeckBorderClass = (deck: Deck) => {
-    if (deck.isClone) return "border-2 border-amber-500";
-    if (deck.isPublic) return "border-2 border-emerald-500";
-    return "border-2 border-blue-500 dark:border-slate-500";
+    if (deck.isClone) return "border-2 border-amber-500 dark:border-amber-400";
+    if (deck.isPublic) return "border-2 border-emerald-500 dark:border-emerald-400";
+    return "border-2 border-blue-500 dark:border-blue-400";
   };
 
   if (status === "loading" || loading) {
@@ -342,9 +342,9 @@ export default function DecksPage() {
 
         {/* Legend */}
         <div className="flex gap-4 text-xs text-muted-foreground mb-6">
-          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm border-2 border-blue-500 dark:border-slate-500" /> Private</span>
-          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm border-2 border-emerald-500" /> Public</span>
-          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm border-2 border-amber-500" /> Cloned</span>
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm border-2 border-blue-500 dark:border-blue-400" /> Private</span>
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm border-2 border-emerald-500 dark:border-emerald-400" /> Public</span>
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm border-2 border-amber-500 dark:border-amber-400" /> Cloned</span>
         </div>
 
         {decks.length === 0 ? (

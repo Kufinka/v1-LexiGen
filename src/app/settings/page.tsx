@@ -20,7 +20,6 @@ import {
   BG_COLORS,
   FACE_COLORS,
   HAIR_COLORS,
-  SEX_OPTIONS,
   EAR_SIZE_OPTIONS,
   HAIR_STYLE_OPTIONS,
   HAT_STYLE_OPTIONS,
@@ -29,6 +28,7 @@ import {
   NOSE_STYLE_OPTIONS,
   MOUTH_STYLE_OPTIONS,
   SHIRT_STYLE_OPTIONS,
+  HAIR_STYLE_LABELS,
 } from "@/lib/avatar";
 import { NiceAvatarRenderer } from "@/components/avatar-display";
 
@@ -47,6 +47,7 @@ export default function SettingsPage() {
   const [username, setUsername] = useState("");
   const [bio, setBio] = useState("");
   const [avatarConfig, setAvatarConfig] = useState<AvatarConfig>(generateDefaultAvatar());
+  const [createdAt, setCreatedAt] = useState<string | null>(null);
 
   useEffect(() => {
     if (status === "unauthenticated") router.push("/login");
@@ -66,6 +67,7 @@ export default function SettingsPage() {
         const data = await res.json();
         setUsername(data.username || "");
         setBio(data.bio || "");
+        if (data.createdAt) setCreatedAt(data.createdAt);
         const parsed = parseAvatarConfig(data.image);
         if (parsed) {
           setAvatarConfig(parsed);
@@ -144,9 +146,9 @@ export default function SettingsPage() {
                   {/* Sex */}
                   <div className="flex items-center gap-2">
                     <p className="text-xs text-muted-foreground w-16">Style</p>
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setAvatarConfig({ ...avatarConfig, sex: cycleArray(SEX_OPTIONS, avatarConfig.sex as typeof SEX_OPTIONS[number], -1) })}><ChevronLeft className="h-4 w-4" /></Button>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setAvatarConfig({ ...avatarConfig, sex: avatarConfig.sex === "man" ? "woman" : "man" })}><ChevronLeft className="h-4 w-4" /></Button>
                     <span className="text-sm w-20 text-center capitalize">{avatarConfig.sex}</span>
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setAvatarConfig({ ...avatarConfig, sex: cycleArray(SEX_OPTIONS, avatarConfig.sex as typeof SEX_OPTIONS[number], 1) })}><ChevronRight className="h-4 w-4" /></Button>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setAvatarConfig({ ...avatarConfig, sex: avatarConfig.sex === "man" ? "woman" : "man" })}><ChevronRight className="h-4 w-4" /></Button>
                   </div>
                   {/* Background Color */}
                   <div>
@@ -194,7 +196,7 @@ export default function SettingsPage() {
                   <div className="flex items-center gap-2">
                     <p className="text-xs text-muted-foreground w-16">Hair</p>
                     <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setAvatarConfig({ ...avatarConfig, hairStyle: cycleArray(HAIR_STYLE_OPTIONS, avatarConfig.hairStyle as typeof HAIR_STYLE_OPTIONS[number], -1) })}><ChevronLeft className="h-4 w-4" /></Button>
-                    <span className="text-sm w-20 text-center capitalize">{avatarConfig.hairStyle}</span>
+                    <span className="text-sm w-20 text-center">{HAIR_STYLE_LABELS[avatarConfig.hairStyle] || avatarConfig.hairStyle}</span>
                     <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setAvatarConfig({ ...avatarConfig, hairStyle: cycleArray(HAIR_STYLE_OPTIONS, avatarConfig.hairStyle as typeof HAIR_STYLE_OPTIONS[number], 1) })}><ChevronRight className="h-4 w-4" /></Button>
                   </div>
                   {/* Hat */}
@@ -276,6 +278,15 @@ export default function SettingsPage() {
               <Input value={session?.user?.email || ""} disabled />
               <p className="text-xs text-muted-foreground">Email cannot be changed.</p>
             </div>
+
+            {createdAt && (
+              <div className="space-y-2">
+                <Label>Member Since</Label>
+                <p className="text-sm text-muted-foreground">
+                  {new Date(createdAt).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" })}
+                </p>
+              </div>
+            )}
 
             <Button onClick={handleSave} disabled={saving} className="gap-2">
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
