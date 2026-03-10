@@ -1,33 +1,45 @@
 import { describe, it, expect } from "vitest";
 import { calculateSRS } from "@/lib/srs";
 
-describe("SRS Algorithm", () => {
+describe("SRS Algorithm (minute-based intervals for fast vocab learning)", () => {
   const defaultCard = { easeFactor: 2.5, interval: 0, repetitions: 0 };
 
-  it("should reset on rating 1 (Again)", () => {
+  it("Again should schedule ~1 minute and reset reps", () => {
     const result = calculateSRS(defaultCard, 1);
-    expect(result.interval).toBe(0);
+    expect(result.interval).toBe(1);
     expect(result.repetitions).toBe(0);
     expect(result.easeFactor).toBeLessThanOrEqual(2.5);
   });
 
-  it("should set interval to 1 on first successful review", () => {
-    const result = calculateSRS(defaultCard, 3);
-    expect(result.interval).toBe(1);
+  it("Hard first review should be 5 min", () => {
+    const result = calculateSRS(defaultCard, 2);
+    expect(result.interval).toBe(5);
     expect(result.repetitions).toBe(1);
   });
 
-  it("should set interval to 6 on second successful review", () => {
-    const card = { easeFactor: 2.5, interval: 1, repetitions: 1 };
+  it("Good first review should be 5 hours (300 min)", () => {
+    const result = calculateSRS(defaultCard, 3);
+    expect(result.interval).toBe(300);
+    expect(result.repetitions).toBe(1);
+  });
+
+  it("Easy first review should be 1 day (1440 min)", () => {
+    const result = calculateSRS(defaultCard, 4);
+    expect(result.interval).toBe(1440);
+    expect(result.repetitions).toBe(1);
+  });
+
+  it("Good second review should be 1 day", () => {
+    const card = { easeFactor: 2.5, interval: 300, repetitions: 1 };
     const result = calculateSRS(card, 3);
-    expect(result.interval).toBe(6);
+    expect(result.interval).toBe(1440);
     expect(result.repetitions).toBe(2);
   });
 
   it("should increase interval on subsequent reviews", () => {
-    const card = { easeFactor: 2.5, interval: 6, repetitions: 2 };
+    const card = { easeFactor: 2.5, interval: 1440, repetitions: 2 };
     const result = calculateSRS(card, 3);
-    expect(result.interval).toBeGreaterThan(6);
+    expect(result.interval).toBeGreaterThan(1440);
     expect(result.repetitions).toBe(3);
   });
 
@@ -36,8 +48,8 @@ describe("SRS Algorithm", () => {
     expect(result.easeFactor).toBeLessThan(2.5);
   });
 
-  it("should increase interval more on Easy rating", () => {
-    const card = { easeFactor: 2.5, interval: 6, repetitions: 2 };
+  it("Easy interval should always be greater than Good interval for the same card", () => {
+    const card = { easeFactor: 2.5, interval: 1440, repetitions: 2 };
     const goodResult = calculateSRS(card, 3);
     const easyResult = calculateSRS(card, 4);
     expect(easyResult.interval).toBeGreaterThan(goodResult.interval);
@@ -57,10 +69,10 @@ describe("SRS Algorithm", () => {
     expect(result.nextReview.getTime()).toBeGreaterThanOrEqual(Date.now());
   });
 
-  it("should reset progress fully on Again after multiple reviews", () => {
-    const card = { easeFactor: 2.5, interval: 30, repetitions: 5 };
+  it("Again should reset progress after many reviews", () => {
+    const card = { easeFactor: 2.5, interval: 10080, repetitions: 5 };
     const result = calculateSRS(card, 1);
-    expect(result.interval).toBe(0);
+    expect(result.interval).toBe(1);
     expect(result.repetitions).toBe(0);
   });
 });

@@ -61,11 +61,15 @@ function getNextReviewLabel(card: StudyCard, rating: number): string {
     { easeFactor: card.easeFactor, interval: card.interval, repetitions: card.repetitions },
     rating
   );
-  if (result.interval === 0) return "~10 min";
-  if (result.interval === 1) return "1 day";
-  if (result.interval < 30) return `${result.interval} days`;
-  if (result.interval < 365) return `${Math.round(result.interval / 30)} mo`;
-  return `${Math.round(result.interval / 365)} yr`;
+  const mins = result.interval;
+  if (mins <= 1) return "<1 min";
+  if (mins < 60) return `${mins} min`;
+  if (mins < 24 * 60) return `${Math.round(mins / 60)} hr`;
+  const days = Math.round(mins / (24 * 60));
+  if (days === 1) return "1 day";
+  if (days < 30) return `${days} days`;
+  if (days < 365) return `${Math.round(days / 30)} mo`;
+  return `${Math.round(days / 365)} yr`;
 }
 
 export default function StudyPage() {
@@ -278,7 +282,7 @@ export default function StudyPage() {
     if (xVal > 100) {
       reviewCard(4);
     } else if (xVal < -100) {
-      reviewCard(1);
+      reviewCard(2);
     }
     x.set(0);
   };
@@ -386,8 +390,8 @@ export default function StudyPage() {
           <div>
             {/* Swipe indicators */}
             <div className="flex justify-between mb-4 px-4">
-              <motion.div style={{ opacity: leftIndicator }} className="text-destructive font-bold text-lg">
-                Again
+              <motion.div style={{ opacity: leftIndicator }} className="text-orange-500 font-bold text-lg">
+                Hard
               </motion.div>
               <motion.div style={{ opacity: rightIndicator }} className="text-green-500 font-bold text-lg">
                 Easy
@@ -475,7 +479,7 @@ export default function StudyPage() {
             )}
 
             <p className="text-center text-xs text-muted-foreground mt-4">
-              Swipe left = Again &middot; Swipe right = Easy &middot; Or use buttons
+              Swipe left = Hard &middot; Swipe right = Easy &middot; Or use buttons
             </p>
           </div>
         ) : (
@@ -514,19 +518,19 @@ export default function StudyPage() {
           <div className="space-y-3 py-4 text-sm">
             <div className="flex items-start gap-3 p-3 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900">
               <span className="font-bold text-red-600 dark:text-red-400 min-w-[60px]">1 Again</span>
-              <span className="text-muted-foreground">Card resets to the beginning. You&apos;ll see it again immediately in the next session. The ease factor decreases.</span>
+              <span className="text-muted-foreground">Card resets. You&apos;ll see it again in under 1 minute. Use this when you completely forgot the answer.</span>
             </div>
             <div className="flex items-start gap-3 p-3 rounded-lg bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-900">
               <span className="font-bold text-orange-600 dark:text-orange-400 min-w-[60px]">2 Hard</span>
-              <span className="text-muted-foreground">The interval is reduced by ~20%. Next review comes sooner than normal. Ease factor slightly decreases.</span>
+              <span className="text-muted-foreground">You recalled it with difficulty. First time: 5 min, then grows slowly. Also triggered by swiping left.</span>
             </div>
             <div className="flex items-start gap-3 p-3 rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900">
               <span className="font-bold text-blue-600 dark:text-blue-400 min-w-[60px]">3 Good</span>
-              <span className="text-muted-foreground">Normal progression. Interval grows based on the current ease factor. First review: 1 day, second: 6 days, then multiplied by ease.</span>
+              <span className="text-muted-foreground">Normal recall. First time: 5 hours, then 1 day, 3 days, and grows with your ease factor.</span>
             </div>
             <div className="flex items-start gap-3 p-3 rounded-lg bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-900">
               <span className="font-bold text-green-600 dark:text-green-400 min-w-[60px]">4 Easy</span>
-              <span className="text-muted-foreground">The interval gets a 30% bonus. You won&apos;t see this card for a longer time. Ease factor increases.</span>
+              <span className="text-muted-foreground">Instant recall. First time: 1 day, then 3 days, 7 days, and grows faster. Also triggered by swiping right.</span>
             </div>
             <p className="text-xs text-muted-foreground pt-2">
               The time shown under each button is the estimated next review date based on the card&apos;s current state.

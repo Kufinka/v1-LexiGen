@@ -191,6 +191,12 @@ export default function DeckDetailPage() {
 
   const saveDeckEdit = async () => {
     if (!deck) return;
+    const rawTags = editingDeck.tags.split(",").map((t) => t.trim()).filter(Boolean);
+    const tooLong = rawTags.find((t) => t.length > 20);
+    if (tooLong) {
+      toast({ title: "Tag too long", description: `"${tooLong}" exceeds 20 characters. Please shorten it.`, variant: "destructive" });
+      return;
+    }
     try {
       const res = await fetch(`/api/decks/${deckId}`, {
         method: "PATCH",
@@ -198,7 +204,7 @@ export default function DeckDetailPage() {
         body: JSON.stringify({
           name: editingDeck.name,
           description: editingDeck.description || undefined,
-          tags: editingDeck.tags.split(",").map((t) => t.trim().slice(0, 20)).filter(Boolean),
+          tags: rawTags,
         }),
       });
       if (res.ok) {
@@ -284,15 +290,21 @@ export default function DeckDetailPage() {
     const arrayBuffer = await file.arrayBuffer();
     const zip = await JSZip.loadAsync(arrayBuffer);
 
-    // Find the SQLite database file inside the .apkg (usually "collection.anki2" or "collection.anki21")
+    const allFiles = Object.keys(zip.files);
+    console.log("[apkg] Files in archive:", allFiles);
+
+    // Find SQLite database: try common names, then any .anki2/.anki21 file, then fallback to any .db or largest non-media file
     let dbFile = zip.file("collection.anki2") || zip.file("collection.anki21");
     if (!dbFile) {
-      // Try to find any .anki2 file
-      const files = Object.keys(zip.files);
-      const anki2 = files.find((f) => f.endsWith(".anki2") || f.endsWith(".anki21"));
-      if (anki2) dbFile = zip.file(anki2);
+      const anki2Name = allFiles.find((f) => f.endsWith(".anki2") || f.endsWith(".anki21"));
+      if (anki2Name) dbFile = zip.file(anki2Name);
     }
-    if (!dbFile) throw new Error("No Anki database found in .apkg file");
+    if (!dbFile) {
+      // Some exports put the db directly without standard name
+      const dbName = allFiles.find((f) => !f.startsWith("media") && !f.endsWith("/") && f !== "media");
+      if (dbName) dbFile = zip.file(dbName);
+    }
+    if (!dbFile) throw new Error("No Anki database found in .apkg file. Files: " + allFiles.join(", "));
 
     const dbData = await dbFile.async("uint8array");
     const SQL = await initSqlJs({
@@ -303,28 +315,93 @@ export default function DeckDetailPage() {
     const importedCards: { sideA: string; sideB: string; type: "WORD" | "SENTENCE" }[] = [];
 
     try {
-      // Anki stores notes with fields separated by \x1f (unit separator)
-      const results = db.exec("SELECT flds FROM notes");
-      if (results.length > 0) {
-        for (const row of results[0].values) {
-          const fields = String(row[0]).split("\x1f");
-          if (fields.length >= 2) {
-            const sideA = stripHtml(fields[0]);
-            const sideB = stripHtml(fields[1]);
-            if (sideA && sideB) {
-              importedCards.push({
-                sideA,
-                sideB,
-                type: sideA.split(" ").length > 3 ? "SENTENCE" : "WORD",
-              });
+      // Check which tables exist in this database
+      const tables = db.exec("SELECT name FROM sqlite_master WHERE type='table'");
+      const tableNames = tables.length > 0 ? tables[0].values.map((r) => String(r[0])) : [];
+      console.log("[apkg] Tables:", tableNames);
+
+      if (tableNames.includes("notes")) {
+        // Standard Anki format: notes table with flds column
+        const results = db.exec("SELECT flds FROM notes");
+        if (results.length > 0) {
+          for (const row of results[0].values) {
+            const fields = String(row[0]).split("\x1f");
+            if (fields.length >= 2) {
+              const sideA = stripHtml(fields[0]);
+              const sideB = stripHtml(fields[1]);
+              if (sideA && sideB) {
+                importedCards.push({
+                  sideA,
+                  sideB,
+                  type: sideA.split(" ").length > 3 ? "SENTENCE" : "WORD",
+                });
+              }
             }
           }
+        }
+      }
+
+      if (importedCards.length === 0 && tableNames.includes("cards")) {
+        // Try cards table directly — some older exports store data differently
+        try {
+          const results = db.exec("SELECT * FROM cards LIMIT 1");
+          const colCount = results.length > 0 ? results[0].columns.length : 0;
+          console.log("[apkg] cards table columns:", results.length > 0 ? results[0].columns : "none");
+          if (colCount >= 2) {
+            const allRows = db.exec("SELECT * FROM cards");
+            if (allRows.length > 0) {
+              for (const row of allRows[0].values) {
+                // Try to find text-like fields
+                const textFields = Array.from(row).filter((v) => typeof v === "string" && String(v).length > 0 && String(v).length < 5000);
+                if (textFields.length >= 2) {
+                  const sideA = stripHtml(String(textFields[0]));
+                  const sideB = stripHtml(String(textFields[1]));
+                  if (sideA && sideB) {
+                    importedCards.push({ sideA, sideB, type: sideA.split(" ").length > 3 ? "SENTENCE" : "WORD" });
+                  }
+                }
+              }
+            }
+          }
+        } catch (e) {
+          console.log("[apkg] cards fallback failed:", e);
+        }
+      }
+
+      // Last resort: try any table that has text-like data
+      if (importedCards.length === 0) {
+        for (const tableName of tableNames) {
+          if (["sqlite_stat1", "sqlite_stat4", "media", "revlog", "graves", "config", "col"].includes(tableName)) continue;
+          try {
+            const results = db.exec(`SELECT * FROM "${tableName}" LIMIT 5`);
+            if (results.length > 0) {
+              console.log(`[apkg] Trying table "${tableName}", columns:`, results[0].columns);
+              // Look for a column with \x1f separated fields
+              for (const row of (db.exec(`SELECT * FROM "${tableName}"`)[0]?.values || [])) {
+                for (const val of row) {
+                  const s = String(val);
+                  if (s.includes("\x1f")) {
+                    const fields = s.split("\x1f");
+                    if (fields.length >= 2) {
+                      const sideA = stripHtml(fields[0]);
+                      const sideB = stripHtml(fields[1]);
+                      if (sideA && sideB) {
+                        importedCards.push({ sideA, sideB, type: sideA.split(" ").length > 3 ? "SENTENCE" : "WORD" });
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          } catch { /* skip unreadable tables */ }
+          if (importedCards.length > 0) break;
         }
       }
     } finally {
       db.close();
     }
 
+    console.log("[apkg] Parsed cards:", importedCards.length);
     return importedCards;
   };
 
@@ -377,7 +454,8 @@ export default function DeckDetailPage() {
       setImportDialogOpen(true);
     } catch (err) {
       console.error("Import error:", err);
-      toast({ title: "Error", description: "Failed to read file. Make sure it is a valid .apkg, .txt, .tsv, or .csv file.", variant: "destructive" });
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      toast({ title: "Import Error", description: msg.includes("Anki") ? msg : `Failed to read file: ${msg}`, variant: "destructive" });
     }
   };
 

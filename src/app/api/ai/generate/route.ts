@@ -33,7 +33,7 @@ export async function POST(req: Request) {
         },
         {
           role: "user",
-          content: `Generate 3 to 6 sentences (going from easy to hard, with more easy ones) using these words: ${words.join(", ")}. CRITICAL RULES: 1) Every sentence MUST be a complete phrase with at least 2 words - never output a single word alone as a sentence. 2) Each sentence must contain at least one of the provided words used naturally in context. 3) Never repeat one of the input words alone as a sentence. Return a JSON array of {"sideA": "...", "sideB": "..."}. Do not include any markdown or explanation.`,
+          content: `Generate ${Math.max(3, words.length)} to ${Math.max(6, words.length + 2)} sentences using these words: ${words.join(", ")}. CRITICAL RULES: 1) Every sentence MUST be a complete phrase with at least 2 words - never output a single word alone. 2) Try to use AS MANY of the provided words as possible in each sentence — ideally combine multiple words into one natural sentence. 3) The first sentences should be simple (short, everyday language), and the later sentences should be more complex (longer, advanced grammar). 4) Together, ALL provided words must appear at least once across the generated sentences. 5) Never repeat one of the input words alone as a sentence. Return a JSON array of {"sideA": "...", "sideB": "..."}. Do not include any markdown or explanation.`,
         },
       ],
       model: "llama-3.1-8b-instant",

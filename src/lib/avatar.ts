@@ -1,16 +1,16 @@
-// Avatar configuration types and options
+// Avatar configuration types and options — animal-based avatars
 export interface AvatarConfig {
-  base: number;       // 0-5 base face shape/color
+  animal: number;     // 0-7 animal type
+  color: number;      // 0-7 animal body color
   eyes: number;       // 0-5 eye style
-  mouth: number;      // 0-5 mouth style
   accessory: number;  // 0-6 accessory (0 = none)
   bgColor: number;    // 0-7 background color
 }
 
 export const DEFAULT_AVATAR: AvatarConfig = {
-  base: 0,
+  animal: 0,
+  color: 0,
   eyes: 0,
-  mouth: 0,
   accessory: 0,
   bgColor: 0,
 };
@@ -26,21 +26,37 @@ export const BG_COLORS = [
   "#06b6d4", // cyan
 ];
 
-export const SKIN_COLORS = [
-  "#fde68a", // light
-  "#fbbf24", // warm
-  "#f59e0b", // tan
-  "#d97706", // medium
-  "#92400e", // dark
-  "#78350f", // deep
+export const ANIMAL_COLORS = [
+  "#fbbf24", // golden
+  "#f97316", // orange
+  "#a3a3a3", // gray
+  "#fde68a", // cream
+  "#8b5cf6", // purple
+  "#f472b6", // pink
+  "#34d399", // mint
+  "#60a5fa", // sky blue
 ];
+
+export const ANIMAL_LABELS = ["Cat", "Dog", "Bunny", "Bear", "Fox", "Owl", "Penguin", "Frog"];
 
 export function parseAvatarConfig(imageStr: string | null | undefined): AvatarConfig | null {
   if (!imageStr) return null;
   try {
     const parsed = JSON.parse(imageStr);
-    if (typeof parsed === "object" && "base" in parsed && "eyes" in parsed) {
-      return parsed as AvatarConfig;
+    if (typeof parsed === "object" && "eyes" in parsed) {
+      // Handle old format with "base" key (humanoid) — migrate to animal format
+      if ("base" in parsed && !("animal" in parsed)) {
+        return {
+          animal: 0,
+          color: parsed.base ?? 0,
+          eyes: parsed.eyes ?? 0,
+          accessory: parsed.accessory ?? 0,
+          bgColor: parsed.bgColor ?? 0,
+        };
+      }
+      if ("animal" in parsed) {
+        return parsed as AvatarConfig;
+      }
     }
   } catch {
     // Not an avatar config string

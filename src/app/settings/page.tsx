@@ -11,12 +11,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Save, ChevronLeft, ChevronRight } from "lucide-react";
-import { AvatarConfig, DEFAULT_AVATAR, BG_COLORS, SKIN_COLORS, parseAvatarConfig, serializeAvatarConfig } from "@/lib/avatar";
+import { AvatarConfig, DEFAULT_AVATAR, BG_COLORS, ANIMAL_COLORS, ANIMAL_LABELS, parseAvatarConfig, serializeAvatarConfig } from "@/lib/avatar";
 import { AvatarSVG } from "@/components/avatar-display";
 
-const EYE_LABELS = ["Dots", "Round", "Happy", "Wink", "Surprised", "Sleepy"];
-const MOUTH_LABELS = ["Smile", "Big Smile", "Neutral", "Smirk", "Open", "Tongue"];
-const ACCESSORY_LABELS = ["None", "Glasses", "Hat", "Crown", "Headband", "Bow", "Star"];
+const EYE_LABELS = ["Dots", "Round", "Happy", "Sparkle", "Wink", "Sleepy"];
+const ACCESSORY_LABELS = ["None", "Glasses", "Top Hat", "Crown", "Flower", "Bow Tie", "Scarf"];
 
 export default function SettingsPage() {
   const { data: session, status, update } = useSession();
@@ -118,16 +117,23 @@ export default function SettingsPage() {
               <Label className="mb-3 block">Avatar</Label>
               <div className="flex flex-col sm:flex-row gap-6 items-center">
                 <div className="shrink-0">
-                  <div className="rounded-full overflow-hidden border-4 border-primary/20" style={{ width: 96, height: 96 }}>
+                  <div className="rounded-full overflow-hidden border-4 border-primary/20 flex items-center justify-center" style={{ width: 96, height: 96 }}>
                     <AvatarSVG config={avatarConfig} size={96} />
                   </div>
                 </div>
                 <div className="flex-1 space-y-3 w-full">
+                  {/* Animal */}
+                  <div className="flex items-center gap-2">
+                    <p className="text-xs text-muted-foreground w-16">Animal</p>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => cycleOption("animal", 8, -1)}><ChevronLeft className="h-4 w-4" /></Button>
+                    <span className="text-sm w-20 text-center">{ANIMAL_LABELS[avatarConfig.animal]}</span>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => cycleOption("animal", 8, 1)}><ChevronRight className="h-4 w-4" /></Button>
+                  </div>
                   {/* Background Color */}
                   <div>
                     <p className="text-xs text-muted-foreground mb-1">Background</p>
                     <div className="flex gap-1.5 flex-wrap">
-                      {BG_COLORS.map((color, i) => (
+                      {BG_COLORS.map((color: string, i: number) => (
                         <button
                           key={color}
                           className={`w-7 h-7 rounded-full transition-all ${avatarConfig.bgColor === i ? "ring-2 ring-primary ring-offset-2 ring-offset-background scale-110" : "hover:scale-105"}`}
@@ -137,16 +143,16 @@ export default function SettingsPage() {
                       ))}
                     </div>
                   </div>
-                  {/* Skin Color */}
+                  {/* Animal Color */}
                   <div>
-                    <p className="text-xs text-muted-foreground mb-1">Skin Tone</p>
+                    <p className="text-xs text-muted-foreground mb-1">Color</p>
                     <div className="flex gap-1.5 flex-wrap">
-                      {SKIN_COLORS.map((color, i) => (
+                      {ANIMAL_COLORS.map((color: string, i: number) => (
                         <button
                           key={color}
-                          className={`w-7 h-7 rounded-full transition-all border ${avatarConfig.base === i ? "ring-2 ring-primary ring-offset-2 ring-offset-background scale-110" : "hover:scale-105"}`}
+                          className={`w-7 h-7 rounded-full transition-all border ${avatarConfig.color === i ? "ring-2 ring-primary ring-offset-2 ring-offset-background scale-110" : "hover:scale-105"}`}
                           style={{ backgroundColor: color }}
-                          onClick={() => setAvatarConfig({ ...avatarConfig, base: i })}
+                          onClick={() => setAvatarConfig({ ...avatarConfig, color: i })}
                         />
                       ))}
                     </div>
@@ -157,13 +163,6 @@ export default function SettingsPage() {
                     <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => cycleOption("eyes", 6, -1)}><ChevronLeft className="h-4 w-4" /></Button>
                     <span className="text-sm w-20 text-center">{EYE_LABELS[avatarConfig.eyes]}</span>
                     <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => cycleOption("eyes", 6, 1)}><ChevronRight className="h-4 w-4" /></Button>
-                  </div>
-                  {/* Mouth */}
-                  <div className="flex items-center gap-2">
-                    <p className="text-xs text-muted-foreground w-16">Mouth</p>
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => cycleOption("mouth", 6, -1)}><ChevronLeft className="h-4 w-4" /></Button>
-                    <span className="text-sm w-20 text-center">{MOUTH_LABELS[avatarConfig.mouth]}</span>
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => cycleOption("mouth", 6, 1)}><ChevronRight className="h-4 w-4" /></Button>
                   </div>
                   {/* Accessory */}
                   <div className="flex items-center gap-2">
