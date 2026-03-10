@@ -10,12 +10,33 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Save, ChevronLeft, ChevronRight } from "lucide-react";
-import { AvatarConfig, DEFAULT_AVATAR, BG_COLORS, ANIMAL_COLORS, ANIMAL_LABELS, parseAvatarConfig, serializeAvatarConfig } from "@/lib/avatar";
-import { AvatarSVG } from "@/components/avatar-display";
+import { Loader2, Save, ChevronLeft, ChevronRight, Shuffle } from "lucide-react";
+import {
+  type AvatarConfig,
+  generateDefaultAvatar,
+  generateRandomAvatar,
+  parseAvatarConfig,
+  serializeAvatarConfig,
+  BG_COLORS,
+  FACE_COLORS,
+  HAIR_COLORS,
+  SEX_OPTIONS,
+  EAR_SIZE_OPTIONS,
+  HAIR_STYLE_OPTIONS,
+  HAT_STYLE_OPTIONS,
+  EYE_STYLE_OPTIONS,
+  GLASSES_STYLE_OPTIONS,
+  NOSE_STYLE_OPTIONS,
+  MOUTH_STYLE_OPTIONS,
+  SHIRT_STYLE_OPTIONS,
+} from "@/lib/avatar";
+import { NiceAvatarRenderer } from "@/components/avatar-display";
 
-const EYE_LABELS = ["Dots", "Round", "Happy", "Sparkle", "Wink", "Sleepy"];
-const ACCESSORY_LABELS = ["None", "Glasses", "Top Hat", "Crown", "Flower", "Bow Tie", "Scarf"];
+function cycleArray<T>(arr: readonly T[], current: T, dir: 1 | -1): T {
+  const idx = arr.indexOf(current);
+  const next = (idx + dir + arr.length) % arr.length;
+  return arr[next];
+}
 
 export default function SettingsPage() {
   const { data: session, status, update } = useSession();
@@ -25,7 +46,7 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [username, setUsername] = useState("");
   const [bio, setBio] = useState("");
-  const [avatarConfig, setAvatarConfig] = useState<AvatarConfig>(DEFAULT_AVATAR);
+  const [avatarConfig, setAvatarConfig] = useState<AvatarConfig>(generateDefaultAvatar());
 
   useEffect(() => {
     if (status === "unauthenticated") router.push("/login");
@@ -82,13 +103,6 @@ export default function SettingsPage() {
     }
   };
 
-  const cycleOption = (key: keyof AvatarConfig, max: number, dir: 1 | -1) => {
-    setAvatarConfig((prev) => ({
-      ...prev,
-      [key]: (prev[key] + dir + max) % max,
-    }));
-  };
-
   if (status === "loading" || loading) {
     return (
       <div className="min-h-screen">
@@ -114,62 +128,123 @@ export default function SettingsPage() {
           <CardContent className="space-y-6">
             {/* Avatar Builder */}
             <div>
-              <Label className="mb-3 block">Avatar</Label>
+              <div className="flex items-center justify-between mb-3">
+                <Label>Avatar</Label>
+                <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setAvatarConfig(generateRandomAvatar())}>
+                  <Shuffle className="h-3.5 w-3.5" /> Randomize
+                </Button>
+              </div>
               <div className="flex flex-col sm:flex-row gap-6 items-center">
                 <div className="shrink-0">
                   <div className="rounded-full overflow-hidden border-4 border-primary/20 flex items-center justify-center" style={{ width: 96, height: 96 }}>
-                    <AvatarSVG config={avatarConfig} size={96} />
+                    <NiceAvatarRenderer config={avatarConfig} size={96} />
                   </div>
                 </div>
                 <div className="flex-1 space-y-3 w-full">
-                  {/* Animal */}
+                  {/* Sex */}
                   <div className="flex items-center gap-2">
-                    <p className="text-xs text-muted-foreground w-16">Animal</p>
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => cycleOption("animal", 8, -1)}><ChevronLeft className="h-4 w-4" /></Button>
-                    <span className="text-sm w-20 text-center">{ANIMAL_LABELS[avatarConfig.animal]}</span>
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => cycleOption("animal", 8, 1)}><ChevronRight className="h-4 w-4" /></Button>
+                    <p className="text-xs text-muted-foreground w-16">Style</p>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setAvatarConfig({ ...avatarConfig, sex: cycleArray(SEX_OPTIONS, avatarConfig.sex as typeof SEX_OPTIONS[number], -1) })}><ChevronLeft className="h-4 w-4" /></Button>
+                    <span className="text-sm w-20 text-center capitalize">{avatarConfig.sex}</span>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setAvatarConfig({ ...avatarConfig, sex: cycleArray(SEX_OPTIONS, avatarConfig.sex as typeof SEX_OPTIONS[number], 1) })}><ChevronRight className="h-4 w-4" /></Button>
                   </div>
                   {/* Background Color */}
                   <div>
                     <p className="text-xs text-muted-foreground mb-1">Background</p>
                     <div className="flex gap-1.5 flex-wrap">
-                      {BG_COLORS.map((color: string, i: number) => (
+                      {BG_COLORS.map((color) => (
                         <button
                           key={color}
-                          className={`w-7 h-7 rounded-full transition-all ${avatarConfig.bgColor === i ? "ring-2 ring-primary ring-offset-2 ring-offset-background scale-110" : "hover:scale-105"}`}
+                          className={`w-7 h-7 rounded-full transition-all ${avatarConfig.bgColor === color ? "ring-2 ring-primary ring-offset-2 ring-offset-background scale-110" : "hover:scale-105"}`}
                           style={{ backgroundColor: color }}
-                          onClick={() => setAvatarConfig({ ...avatarConfig, bgColor: i })}
+                          onClick={() => setAvatarConfig({ ...avatarConfig, bgColor: color })}
                         />
                       ))}
                     </div>
                   </div>
-                  {/* Animal Color */}
+                  {/* Face Color */}
                   <div>
-                    <p className="text-xs text-muted-foreground mb-1">Color</p>
+                    <p className="text-xs text-muted-foreground mb-1">Skin</p>
                     <div className="flex gap-1.5 flex-wrap">
-                      {ANIMAL_COLORS.map((color: string, i: number) => (
+                      {FACE_COLORS.map((color) => (
                         <button
                           key={color}
-                          className={`w-7 h-7 rounded-full transition-all border ${avatarConfig.color === i ? "ring-2 ring-primary ring-offset-2 ring-offset-background scale-110" : "hover:scale-105"}`}
+                          className={`w-7 h-7 rounded-full transition-all border ${avatarConfig.faceColor === color ? "ring-2 ring-primary ring-offset-2 ring-offset-background scale-110" : "hover:scale-105"}`}
                           style={{ backgroundColor: color }}
-                          onClick={() => setAvatarConfig({ ...avatarConfig, color: i })}
+                          onClick={() => setAvatarConfig({ ...avatarConfig, faceColor: color })}
                         />
                       ))}
                     </div>
+                  </div>
+                  {/* Hair Color */}
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">Hair Color</p>
+                    <div className="flex gap-1.5 flex-wrap">
+                      {HAIR_COLORS.map((color) => (
+                        <button
+                          key={color}
+                          className={`w-7 h-7 rounded-full transition-all border ${avatarConfig.hairColor === color ? "ring-2 ring-primary ring-offset-2 ring-offset-background scale-110" : "hover:scale-105"}`}
+                          style={{ backgroundColor: color }}
+                          onClick={() => setAvatarConfig({ ...avatarConfig, hairColor: color })}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                  {/* Hair Style */}
+                  <div className="flex items-center gap-2">
+                    <p className="text-xs text-muted-foreground w-16">Hair</p>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setAvatarConfig({ ...avatarConfig, hairStyle: cycleArray(HAIR_STYLE_OPTIONS, avatarConfig.hairStyle as typeof HAIR_STYLE_OPTIONS[number], -1) })}><ChevronLeft className="h-4 w-4" /></Button>
+                    <span className="text-sm w-20 text-center capitalize">{avatarConfig.hairStyle}</span>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setAvatarConfig({ ...avatarConfig, hairStyle: cycleArray(HAIR_STYLE_OPTIONS, avatarConfig.hairStyle as typeof HAIR_STYLE_OPTIONS[number], 1) })}><ChevronRight className="h-4 w-4" /></Button>
+                  </div>
+                  {/* Hat */}
+                  <div className="flex items-center gap-2">
+                    <p className="text-xs text-muted-foreground w-16">Hat</p>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setAvatarConfig({ ...avatarConfig, hatStyle: cycleArray(HAT_STYLE_OPTIONS, avatarConfig.hatStyle as typeof HAT_STYLE_OPTIONS[number], -1) })}><ChevronLeft className="h-4 w-4" /></Button>
+                    <span className="text-sm w-20 text-center capitalize">{avatarConfig.hatStyle}</span>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setAvatarConfig({ ...avatarConfig, hatStyle: cycleArray(HAT_STYLE_OPTIONS, avatarConfig.hatStyle as typeof HAT_STYLE_OPTIONS[number], 1) })}><ChevronRight className="h-4 w-4" /></Button>
                   </div>
                   {/* Eyes */}
                   <div className="flex items-center gap-2">
                     <p className="text-xs text-muted-foreground w-16">Eyes</p>
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => cycleOption("eyes", 6, -1)}><ChevronLeft className="h-4 w-4" /></Button>
-                    <span className="text-sm w-20 text-center">{EYE_LABELS[avatarConfig.eyes]}</span>
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => cycleOption("eyes", 6, 1)}><ChevronRight className="h-4 w-4" /></Button>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setAvatarConfig({ ...avatarConfig, eyeStyle: cycleArray(EYE_STYLE_OPTIONS, avatarConfig.eyeStyle as typeof EYE_STYLE_OPTIONS[number], -1) })}><ChevronLeft className="h-4 w-4" /></Button>
+                    <span className="text-sm w-20 text-center capitalize">{avatarConfig.eyeStyle}</span>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setAvatarConfig({ ...avatarConfig, eyeStyle: cycleArray(EYE_STYLE_OPTIONS, avatarConfig.eyeStyle as typeof EYE_STYLE_OPTIONS[number], 1) })}><ChevronRight className="h-4 w-4" /></Button>
                   </div>
-                  {/* Accessory */}
+                  {/* Glasses */}
                   <div className="flex items-center gap-2">
-                    <p className="text-xs text-muted-foreground w-16">Accessory</p>
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => cycleOption("accessory", 7, -1)}><ChevronLeft className="h-4 w-4" /></Button>
-                    <span className="text-sm w-20 text-center">{ACCESSORY_LABELS[avatarConfig.accessory]}</span>
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => cycleOption("accessory", 7, 1)}><ChevronRight className="h-4 w-4" /></Button>
+                    <p className="text-xs text-muted-foreground w-16">Glasses</p>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setAvatarConfig({ ...avatarConfig, glassesStyle: cycleArray(GLASSES_STYLE_OPTIONS, avatarConfig.glassesStyle as typeof GLASSES_STYLE_OPTIONS[number], -1) })}><ChevronLeft className="h-4 w-4" /></Button>
+                    <span className="text-sm w-20 text-center capitalize">{avatarConfig.glassesStyle}</span>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setAvatarConfig({ ...avatarConfig, glassesStyle: cycleArray(GLASSES_STYLE_OPTIONS, avatarConfig.glassesStyle as typeof GLASSES_STYLE_OPTIONS[number], 1) })}><ChevronRight className="h-4 w-4" /></Button>
+                  </div>
+                  {/* Nose */}
+                  <div className="flex items-center gap-2">
+                    <p className="text-xs text-muted-foreground w-16">Nose</p>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setAvatarConfig({ ...avatarConfig, noseStyle: cycleArray(NOSE_STYLE_OPTIONS, avatarConfig.noseStyle as typeof NOSE_STYLE_OPTIONS[number], -1) })}><ChevronLeft className="h-4 w-4" /></Button>
+                    <span className="text-sm w-20 text-center capitalize">{avatarConfig.noseStyle}</span>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setAvatarConfig({ ...avatarConfig, noseStyle: cycleArray(NOSE_STYLE_OPTIONS, avatarConfig.noseStyle as typeof NOSE_STYLE_OPTIONS[number], 1) })}><ChevronRight className="h-4 w-4" /></Button>
+                  </div>
+                  {/* Mouth */}
+                  <div className="flex items-center gap-2">
+                    <p className="text-xs text-muted-foreground w-16">Mouth</p>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setAvatarConfig({ ...avatarConfig, mouthStyle: cycleArray(MOUTH_STYLE_OPTIONS, avatarConfig.mouthStyle as typeof MOUTH_STYLE_OPTIONS[number], -1) })}><ChevronLeft className="h-4 w-4" /></Button>
+                    <span className="text-sm w-20 text-center capitalize">{avatarConfig.mouthStyle}</span>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setAvatarConfig({ ...avatarConfig, mouthStyle: cycleArray(MOUTH_STYLE_OPTIONS, avatarConfig.mouthStyle as typeof MOUTH_STYLE_OPTIONS[number], 1) })}><ChevronRight className="h-4 w-4" /></Button>
+                  </div>
+                  {/* Ears */}
+                  <div className="flex items-center gap-2">
+                    <p className="text-xs text-muted-foreground w-16">Ears</p>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setAvatarConfig({ ...avatarConfig, earSize: cycleArray(EAR_SIZE_OPTIONS, avatarConfig.earSize as typeof EAR_SIZE_OPTIONS[number], -1) })}><ChevronLeft className="h-4 w-4" /></Button>
+                    <span className="text-sm w-20 text-center capitalize">{avatarConfig.earSize}</span>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setAvatarConfig({ ...avatarConfig, earSize: cycleArray(EAR_SIZE_OPTIONS, avatarConfig.earSize as typeof EAR_SIZE_OPTIONS[number], 1) })}><ChevronRight className="h-4 w-4" /></Button>
+                  </div>
+                  {/* Shirt */}
+                  <div className="flex items-center gap-2">
+                    <p className="text-xs text-muted-foreground w-16">Shirt</p>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setAvatarConfig({ ...avatarConfig, shirtStyle: cycleArray(SHIRT_STYLE_OPTIONS, avatarConfig.shirtStyle as typeof SHIRT_STYLE_OPTIONS[number], -1) })}><ChevronLeft className="h-4 w-4" /></Button>
+                    <span className="text-sm w-20 text-center capitalize">{avatarConfig.shirtStyle}</span>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setAvatarConfig({ ...avatarConfig, shirtStyle: cycleArray(SHIRT_STYLE_OPTIONS, avatarConfig.shirtStyle as typeof SHIRT_STYLE_OPTIONS[number], 1) })}><ChevronRight className="h-4 w-4" /></Button>
                   </div>
                 </div>
               </div>

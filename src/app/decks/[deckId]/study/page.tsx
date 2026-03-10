@@ -91,7 +91,10 @@ export default function StudyPage() {
   const [reviewCount, setReviewCount] = useState(0);
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
   const [srsInfoOpen, setSrsInfoOpen] = useState(false);
+  const [waitingForAgain, setWaitingForAgain] = useState(false);
   const sessionStartRef = useRef<number>(Date.now());
+  const againCardIds = useRef<Set<string>>(new Set());
+  const againTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const x = useMotionValue(0);
   const rotate = useTransform(x, [-200, 200], [-25, 25]);
@@ -115,6 +118,9 @@ export default function StudyPage() {
         setHistory([]);
         setCompleted(data.length === 0);
         setReviewCount(0);
+        againCardIds.current.clear();
+        setWaitingForAgain(false);
+        if (againTimerRef.current) clearTimeout(againTimerRef.current);
       }
     } catch {
       toast({ title: "Error", description: "Failed to load study cards", variant: "destructive" });
@@ -138,8 +144,10 @@ export default function StudyPage() {
 
   const endSession = useCallback(async () => {
     if (sessionId) {
+      const id = sessionId;
+      setSessionId(null);
       try {
-        await fetch(`/api/sessions/${sessionId}`, { method: "PATCH" });
+        await fetch(`/api/sessions/${id}`, { method: "PATCH" });
       } catch {
         // ignore
       }
@@ -148,21 +156,93 @@ export default function StudyPage() {
 
   useEffect(() => {
     if (session) {
+      // End previous session before starting a new one (e.g. filter change)
+      if (sessionId) {
+        fetch(`/api/sessions/${sessionId}`, { method: "PATCH" }).catch(() => {});
+        setSessionId(null);
+      }
       fetchCards();
       startSession();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, filter]);
 
-  // End session when user leaves the page
+  // End session when user leaves the page or tab becomes hidden
   useEffect(() => {
-    const handleBeforeUnload = () => { endSession(); };
+    const handleBeforeUnload = () => {
+      if (sessionId) {
+        // Use sendBeacon for reliable delivery on page unload
+        navigator.sendBeacon(`/api/sessions/${sessionId}`, JSON.stringify({ end: true }));
+      }
+    };
+    const handleVisibilityChange = () => {
+      if (document.hidden && sessionId) {
+        endSession();
+      }
+    };
     window.addEventListener("beforeunload", handleBeforeUnload);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => {
       window.removeEventListener("beforeunload", handleBeforeUnload);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       endSession();
     };
-  }, [endSession]);
+  }, [endSession, sessionId]);
+
+  // Check if any Again cards are now due and re-queue them
+  const checkForAgainCards = async () => {
+    setWaitingForAgain(true);
+    try {
+      const res = await fetch(`/api/decks/${deckId}/study?filter=${filter}`);
+      if (res.ok) {
+        const dueCards: StudyCard[] = await res.json();
+        if (dueCards.length > 0) {
+          // Found due cards (likely Again cards) — continue session
+          setCards(dueCards);
+          setCurrentIndex(0);
+          setFlipped(false);
+          againCardIds.current.clear();
+          setWaitingForAgain(false);
+          return;
+        }
+      }
+    } catch {
+      // ignore fetch errors
+    }
+
+    // No cards due yet — wait a bit and retry (Again interval is <1 min)
+    if (againTimerRef.current) clearTimeout(againTimerRef.current);
+    againTimerRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/decks/${deckId}/study?filter=${filter}`);
+        if (res.ok) {
+          const dueCards: StudyCard[] = await res.json();
+          if (dueCards.length > 0) {
+            setCards(dueCards);
+            setCurrentIndex(0);
+            setFlipped(false);
+            againCardIds.current.clear();
+            setWaitingForAgain(false);
+            return;
+          }
+        }
+      } catch {
+        // ignore
+      }
+      // Still no cards — complete the session
+      againCardIds.current.clear();
+      setWaitingForAgain(false);
+      setCompleted(true);
+      endSession();
+    }, 60000); // Wait up to 60 seconds for Again cards to become due
+  };
+
+  // Cleanup again timer on unmount
+  useEffect(() => {
+    return () => {
+      if (againTimerRef.current) clearTimeout(againTimerRef.current);
+    };
+  }, []);
 
   const reviewCard = async (rating: number) => {
     const currentCard = cards[currentIndex];
@@ -206,9 +286,19 @@ export default function StudyPage() {
 
       setReviewCount((prev) => prev + 1);
 
+      // Track Again cards for re-queue
+      if (rating === 1) {
+        againCardIds.current.add(currentCard.id);
+      }
+
       if (currentIndex + 1 >= cards.length) {
-        setCompleted(true);
-        endSession();
+        // Check if any Again cards might be due soon
+        if (againCardIds.current.size > 0) {
+          checkForAgainCards();
+        } else {
+          setCompleted(true);
+          endSession();
+        }
       } else {
         setCurrentIndex((prev) => prev + 1);
         setFlipped(false);
@@ -363,7 +453,22 @@ export default function StudyPage() {
           </div>
         </div>
 
-        {completed ? (
+        {waitingForAgain ? (
+          <div className="text-center py-20">
+            <Loader2 className="h-12 w-12 animate-spin text-primary mx-auto mb-4" />
+            <h2 className="text-xl font-semibold mb-2">Waiting for Again cards...</h2>
+            <p className="text-muted-foreground mb-6">Cards marked &ldquo;Again&rdquo; will reappear in under 1 minute.</p>
+            <Button variant="outline" onClick={() => {
+              if (againTimerRef.current) clearTimeout(againTimerRef.current);
+              againCardIds.current.clear();
+              setWaitingForAgain(false);
+              setCompleted(true);
+              endSession();
+            }}>
+              End Session Now
+            </Button>
+          </div>
+        ) : completed ? (
           <div className="text-center py-20">
             <CheckCircle2 className="h-16 w-16 text-green-500 mx-auto mb-4" />
             <h2 className="text-2xl font-bold mb-2">Session Complete!</h2>

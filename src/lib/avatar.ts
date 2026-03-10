@@ -1,62 +1,54 @@
-// Avatar configuration types and options — animal-based avatars
-export interface AvatarConfig {
-  animal: number;     // 0-7 animal type
-  color: number;      // 0-7 animal body color
-  eyes: number;       // 0-5 eye style
-  accessory: number;  // 0-6 accessory (0 = none)
-  bgColor: number;    // 0-7 background color
-}
+// Avatar configuration using react-nice-avatar
+// We store the genConfig output as JSON in the user's image field.
 
-export const DEFAULT_AVATAR: AvatarConfig = {
-  animal: 0,
-  color: 0,
-  eyes: 0,
-  accessory: 0,
-  bgColor: 0,
-};
+import { genConfig, type AvatarFullConfig } from "react-nice-avatar";
+
+export type AvatarConfig = Required<AvatarFullConfig>;
+
+export const SEX_OPTIONS = ["man", "woman"] as const;
+export const EAR_SIZE_OPTIONS = ["small", "big"] as const;
+export const HAIR_STYLE_OPTIONS = ["normal", "thick", "mohawk", "womanLong", "womanShort"] as const;
+export const HAT_STYLE_OPTIONS = ["none", "beanie", "turban"] as const;
+export const EYE_STYLE_OPTIONS = ["circle", "oval", "smile"] as const;
+export const GLASSES_STYLE_OPTIONS = ["none", "round", "square"] as const;
+export const NOSE_STYLE_OPTIONS = ["short", "long", "round"] as const;
+export const MOUTH_STYLE_OPTIONS = ["laugh", "smile", "peace"] as const;
+export const SHIRT_STYLE_OPTIONS = ["hoody", "short", "polo"] as const;
 
 export const BG_COLORS = [
-  "#6366f1", // indigo
-  "#ec4899", // pink
-  "#f59e0b", // amber
-  "#10b981", // emerald
-  "#3b82f6", // blue
-  "#8b5cf6", // violet
-  "#ef4444", // red
-  "#06b6d4", // cyan
+  "#6366f1", "#ec4899", "#f59e0b", "#10b981",
+  "#3b82f6", "#8b5cf6", "#ef4444", "#06b6d4",
 ];
 
-export const ANIMAL_COLORS = [
-  "#fbbf24", // golden
-  "#f97316", // orange
-  "#a3a3a3", // gray
-  "#fde68a", // cream
-  "#8b5cf6", // purple
-  "#f472b6", // pink
-  "#34d399", // mint
-  "#60a5fa", // sky blue
+export const FACE_COLORS = [
+  "#F9C9B6", "#AC6651", "#F4D150", "#FFECD2",
+  "#C8E6C9", "#B5E0F5", "#D7BDE2", "#F5B7B1",
 ];
 
-export const ANIMAL_LABELS = ["Cat", "Dog", "Bunny", "Bear", "Fox", "Owl", "Penguin", "Frog"];
+export const HAIR_COLORS = [
+  "#000000", "#4A312C", "#A55728", "#D6B370",
+  "#E8E1E1", "#FC909F", "#6366f1", "#10b981",
+];
+
+export function generateDefaultAvatar(): AvatarConfig {
+  return genConfig();
+}
+
+export function generateRandomAvatar(): AvatarConfig {
+  return genConfig();
+}
 
 export function parseAvatarConfig(imageStr: string | null | undefined): AvatarConfig | null {
   if (!imageStr) return null;
   try {
     const parsed = JSON.parse(imageStr);
-    if (typeof parsed === "object" && "eyes" in parsed) {
-      // Handle old format with "base" key (humanoid) — migrate to animal format
-      if ("base" in parsed && !("animal" in parsed)) {
-        return {
-          animal: 0,
-          color: parsed.base ?? 0,
-          eyes: parsed.eyes ?? 0,
-          accessory: parsed.accessory ?? 0,
-          bgColor: parsed.bgColor ?? 0,
-        };
-      }
-      if ("animal" in parsed) {
-        return parsed as AvatarConfig;
-      }
+    if (typeof parsed === "object" && ("sex" in parsed || "faceColor" in parsed)) {
+      // It's a react-nice-avatar config — ensure all fields exist
+      return genConfig(parsed);
+    }
+    // Legacy format (old animal or humanoid avatars) — generate a fresh one deterministically
+    if (typeof parsed === "object" && ("animal" in parsed || "base" in parsed || "eyes" in parsed)) {
+      return genConfig();
     }
   } catch {
     // Not an avatar config string

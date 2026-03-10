@@ -14,10 +14,10 @@ export async function GET() {
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
-    // Total reviews today
+    // Total reviews today — query via card→deck→userId so reviews with null sessionId are included
     const todayReviews = await prisma.cardReview.count({
       where: {
-        session: { userId: session.user.id },
+        card: { deck: { userId: session.user.id } },
         createdAt: { gte: startOfToday },
       },
     });
@@ -25,7 +25,7 @@ export async function GET() {
     // Total reviews this month
     const monthReviews = await prisma.cardReview.count({
       where: {
-        session: { userId: session.user.id },
+        card: { deck: { userId: session.user.id } },
         createdAt: { gte: startOfMonth },
       },
     });
@@ -38,9 +38,11 @@ export async function GET() {
       },
     });
 
+    const MAX_SESSION_MS = 2 * 60 * 60 * 1000; // cap any single session at 2 hours
     const hoursStudiedToday = todaySessions.reduce((total: number, s: { startedAt: Date; endedAt: Date | null }) => {
       const end = s.endedAt || now;
-      return total + (end.getTime() - s.startedAt.getTime()) / (1000 * 60 * 60);
+      const duration = Math.min(end.getTime() - s.startedAt.getTime(), MAX_SESSION_MS);
+      return total + duration / (1000 * 60 * 60);
     }, 0);
 
     // Calculate streak
@@ -84,7 +86,7 @@ export async function GET() {
 
       const reviews = await prisma.cardReview.count({
         where: {
-          session: { userId: session.user.id },
+          card: { deck: { userId: session.user.id } },
           createdAt: { gte: dayStart, lt: dayEnd },
         },
       });
@@ -96,9 +98,11 @@ export async function GET() {
         },
       });
 
+      const MAX_SESS_MS = 2 * 60 * 60 * 1000;
       const minutes = sessions.reduce((total: number, s: { startedAt: Date; endedAt: Date | null }) => {
         const end = s.endedAt || (dayEnd < now ? dayEnd : now);
-        return total + (end.getTime() - s.startedAt.getTime()) / (1000 * 60);
+        const duration = Math.min(end.getTime() - s.startedAt.getTime(), MAX_SESS_MS);
+        return total + duration / (1000 * 60);
       }, 0);
 
       dailyData.push({
