@@ -198,7 +198,7 @@ export default function DeckDetailPage() {
         body: JSON.stringify({
           name: editingDeck.name,
           description: editingDeck.description || undefined,
-          tags: editingDeck.tags.split(",").map((t) => t.trim()).filter(Boolean),
+          tags: editingDeck.tags.split(",").map((t) => t.trim().slice(0, 20)).filter(Boolean),
         }),
       });
       if (res.ok) {
@@ -296,7 +296,7 @@ export default function DeckDetailPage() {
 
     const dbData = await dbFile.async("uint8array");
     const SQL = await initSqlJs({
-      locateFile: (file: string) => `https://sql.js.org/dist/${file}`,
+      locateFile: () => `/sql-wasm.wasm`,
     });
     const db = new SQL.Database(dbData);
 

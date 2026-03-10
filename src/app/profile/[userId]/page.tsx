@@ -4,9 +4,9 @@ import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import { Navbar } from "@/components/navbar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, Star, BookOpen } from "lucide-react";
+import AvatarDisplay from "@/components/avatar-display";
 
 interface PublicDeck {
   id: string;
@@ -80,12 +80,7 @@ export default function PublisherProfilePage() {
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Profile Header */}
         <div className="flex items-center gap-4 mb-8">
-          <Avatar className="h-16 w-16">
-            <AvatarImage src={profile.image || ""} />
-            <AvatarFallback className="text-xl bg-primary/20 text-primary">
-              {profile.username.charAt(0).toUpperCase()}
-            </AvatarFallback>
-          </Avatar>
+          <AvatarDisplay imageStr={profile.image} fallbackInitial={profile.username} size={64} />
           <div>
             <h1 className="text-2xl font-bold">{profile.username}</h1>
             {profile.bio && <p className="text-muted-foreground mt-1">{profile.bio}</p>}

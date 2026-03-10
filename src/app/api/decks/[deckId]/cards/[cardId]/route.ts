@@ -30,6 +30,7 @@ export async function PATCH(
     if (typeof body.easeFactor === "number") srsData.easeFactor = body.easeFactor;
     if (typeof body.interval === "number") srsData.interval = body.interval;
     if (typeof body.repetitions === "number") srsData.repetitions = body.repetitions;
+    if (body.nextReview) srsData.nextReview = new Date(body.nextReview);
 
     const card = await prisma.card.update({
       where: { id: params.cardId, deckId: params.deckId },

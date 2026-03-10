@@ -44,6 +44,7 @@ interface StudyCard {
   easeFactor: number;
   interval: number;
   repetitions: number;
+  nextReview: string;
 }
 
 interface HistoryEntry {
@@ -52,6 +53,7 @@ interface HistoryEntry {
   prevEF: number;
   prevInterval: number;
   prevReps: number;
+  prevNextReview: string;
 }
 
 function getNextReviewLabel(card: StudyCard, rating: number): string {
@@ -59,7 +61,7 @@ function getNextReviewLabel(card: StudyCard, rating: number): string {
     { easeFactor: card.easeFactor, interval: card.interval, repetitions: card.repetitions },
     rating
   );
-  if (result.interval === 0) return "< 1 min";
+  if (result.interval === 0) return "~10 min";
   if (result.interval === 1) return "1 day";
   if (result.interval < 30) return `${result.interval} days`;
   if (result.interval < 365) return `${Math.round(result.interval / 30)} mo`;
@@ -185,6 +187,7 @@ export default function StudyPage() {
           prevEF: currentCard.easeFactor,
           prevInterval: currentCard.interval,
           prevReps: currentCard.repetitions,
+          prevNextReview: currentCard.nextReview,
         },
       ]);
 
@@ -227,6 +230,7 @@ export default function StudyPage() {
           easeFactor: lastEntry.prevEF,
           interval: lastEntry.prevInterval,
           repetitions: lastEntry.prevReps,
+          nextReview: lastEntry.prevNextReview,
         }),
       });
     } catch {
@@ -244,7 +248,7 @@ export default function StudyPage() {
     setCards((prev) =>
       prev.map((c) =>
         c.id === lastEntry.card.id
-          ? { ...c, easeFactor: lastEntry.prevEF, interval: lastEntry.prevInterval, repetitions: lastEntry.prevReps }
+          ? { ...c, easeFactor: lastEntry.prevEF, interval: lastEntry.prevInterval, repetitions: lastEntry.prevReps, nextReview: lastEntry.prevNextReview }
           : c
       )
     );

@@ -33,7 +33,7 @@ export async function POST(req: Request) {
         },
         {
           role: "user",
-          content: `Generate 3 to 6 sentences (going from easy to hard, with more easy ones) using these words: ${words.join(", ")}. CRITICAL RULES: 1) Every sentence MUST be a complete sentence with at least 4 words - never output a single word or short phrase as a sentence. 2) Each sentence must contain at least one of the provided words used naturally in context. 3) Never repeat one of the input words alone as a sentence. Return a JSON array of {"sideA": "...", "sideB": "..."}.`,
+          content: `Generate 3 to 6 sentences (going from easy to hard, with more easy ones) using these words: ${words.join(", ")}. CRITICAL RULES: 1) Every sentence MUST be a complete phrase with at least 2 words - never output a single word alone as a sentence. 2) Each sentence must contain at least one of the provided words used naturally in context. 3) Never repeat one of the input words alone as a sentence. Return a JSON array of {"sideA": "...", "sideB": "..."}. Do not include any markdown or explanation.`,
         },
       ],
       model: "llama-3.1-8b-instant",
@@ -60,7 +60,7 @@ export async function POST(req: Request) {
       (s: { sideA?: string; sideB?: string }) =>
         s.sideA &&
         s.sideB &&
-        s.sideA.trim().split(/\s+/).length >= 3 &&
+        s.sideA.trim().split(/\s+/).length >= 2 &&
         s.sideB.trim().split(/\s+/).length >= 2 &&
         !words.some((w: string) => s.sideA!.trim().toLowerCase() === w.toLowerCase())
     );

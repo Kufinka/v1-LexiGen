@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -28,7 +28,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, BookOpen, Loader2, Trash2, Eye, EyeOff, Search, Copy, Clock } from "lucide-react";
+import { Plus, BookOpen, Loader2, Trash2, Eye, EyeOff, Search, Copy, Clock, CheckCircle2 } from "lucide-react";
+import { LANGUAGES } from "@/lib/languages";
 
 interface Deck {
   id: string;
@@ -49,7 +50,7 @@ export default function DecksPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const { toast } = useToast();
-  const [decks, setDecks] = useState<Deck[]>([]);
+  const [allDecks, setAllDecks] = useState<Deck[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -59,6 +60,7 @@ export default function DecksPage() {
   const [tagFilter, setTagFilter] = useState("");
   const [sortBy, setSortBy] = useState("updatedAt");
   const [newDeck, setNewDeck] = useState({ name: "", description: "", languageA: "", languageB: "", tags: "" });
+  const debounceRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     if (status === "unauthenticated") router.push("/login");
@@ -67,34 +69,63 @@ export default function DecksPage() {
   const fetchDecks = useCallback(async () => {
     try {
       const params = new URLSearchParams();
-      if (search) params.set("search", search);
-      if (tagFilter) params.set("tag", tagFilter);
       params.set("sort", sortBy);
       const res = await fetch(`/api/decks?${params.toString()}`);
       if (res.ok) {
         const data = await res.json();
-        setDecks(data);
+        setAllDecks(data);
       }
     } catch {
       toast({ title: "Error", description: "Failed to load decks", variant: "destructive" });
     } finally {
       setLoading(false);
     }
-  }, [search, tagFilter, sortBy, toast]);
+  }, [sortBy, toast]);
 
   useEffect(() => {
     if (session) fetchDecks();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session, sortBy, tagFilter]);
+  }, [session, sortBy]);
 
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    fetchDecks();
+  // Stable tag list from ALL decks, not filtered ones
+  const allTags = useMemo(() => Array.from(new Set(allDecks.flatMap((d) => d.tags))), [allDecks]);
+
+  // Client-side filtering for instant search
+  const decks = useMemo(() => {
+    let filtered = allDecks;
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      filtered = filtered.filter(
+        (d) =>
+          d.name.toLowerCase().includes(q) ||
+          d.languageA.toLowerCase().includes(q) ||
+          d.languageB.toLowerCase().includes(q) ||
+          d.tags.some((t) => t.toLowerCase().includes(q)) ||
+          (d.isClone && "cloned".includes(q))
+      );
+    }
+    if (tagFilter && tagFilter !== "all") {
+      filtered = filtered.filter((d) => d.tags.includes(tagFilter));
+    }
+    return filtered;
+  }, [allDecks, search, tagFilter]);
+
+  // Debounced search - no button needed
+  const handleSearchChange = (value: string) => {
+    setSearch(value);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {}, 200);
   };
+
+  const MAX_TAG_LENGTH = 20;
 
   const createDeck = async () => {
     setCreating(true);
     try {
+      const tags = newDeck.tags
+        .split(",")
+        .map((t) => t.trim().slice(0, MAX_TAG_LENGTH))
+        .filter(Boolean);
       const res = await fetch("/api/decks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -103,10 +134,7 @@ export default function DecksPage() {
           description: newDeck.description || undefined,
           languageA: newDeck.languageA,
           languageB: newDeck.languageB,
-          tags: newDeck.tags
-            .split(",")
-            .map((t) => t.trim())
-            .filter(Boolean),
+          tags,
         }),
       });
 
@@ -162,13 +190,10 @@ export default function DecksPage() {
     }
   };
 
-  // Gather all unique tags
-  const allTags = Array.from(new Set(decks.flatMap((d) => d.tags)));
-
   const getDeckBorderClass = (deck: Deck) => {
-    if (deck.isClone) return "border-l-4 border-l-amber-400 dark:border-l-amber-500";
-    if (deck.isPublic) return "border-l-4 border-l-emerald-400 dark:border-l-emerald-500";
-    return "border-l-4 border-l-slate-300 dark:border-l-slate-600";
+    if (deck.isClone) return "border-l-4 border-l-amber-500";
+    if (deck.isPublic) return "border-l-4 border-l-emerald-500";
+    return "border-l-4 border-l-blue-300 dark:border-l-slate-600";
   };
 
   if (status === "loading" || loading) {
@@ -226,23 +251,33 @@ export default function DecksPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>Language A</Label>
-                    <Input
-                      placeholder="e.g., English"
-                      value={newDeck.languageA}
-                      onChange={(e) => setNewDeck({ ...newDeck, languageA: e.target.value })}
-                    />
+                    <Select value={newDeck.languageA} onValueChange={(v) => setNewDeck({ ...newDeck, languageA: v })}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select language" />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-60">
+                        {LANGUAGES.map((lang) => (
+                          <SelectItem key={lang.code} value={lang.name}>{lang.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div className="space-y-2">
                     <Label>Language B</Label>
-                    <Input
-                      placeholder="e.g., Japanese"
-                      value={newDeck.languageB}
-                      onChange={(e) => setNewDeck({ ...newDeck, languageB: e.target.value })}
-                    />
+                    <Select value={newDeck.languageB} onValueChange={(v) => setNewDeck({ ...newDeck, languageB: v })}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select language" />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-60">
+                        {LANGUAGES.map((lang) => (
+                          <SelectItem key={lang.code} value={lang.name}>{lang.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <Label>Tags (comma separated)</Label>
+                  <Label>Tags (comma separated, max {MAX_TAG_LENGTH} chars each)</Label>
                   <Input
                     placeholder="e.g., travel, beginner, japan"
                     value={newDeck.tags}
@@ -262,31 +297,26 @@ export default function DecksPage() {
 
         {/* Search, Filter, Sort */}
         <div className="flex flex-wrap gap-2 mb-6">
-          <form onSubmit={handleSearch} className="flex gap-2 flex-1 min-w-[200px]">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search decks..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-10"
-              />
-            </div>
-            <Button type="submit" size="sm">Search</Button>
-          </form>
-          {allTags.length > 0 && (
-            <Select value={tagFilter} onValueChange={setTagFilter}>
-              <SelectTrigger className="w-36">
-                <SelectValue placeholder="Filter tag" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Tags</SelectItem>
-                {allTags.map((tag) => (
-                  <SelectItem key={tag} value={tag}>{tag}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
+          <div className="relative flex-1 min-w-[200px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search decks, languages, tags, cloned..."
+              value={search}
+              onChange={(e) => handleSearchChange(e.target.value)}
+              className="pl-10"
+            />
+          </div>
+          <Select value={tagFilter || "all"} onValueChange={(v) => setTagFilter(v === "all" ? "" : v)}>
+            <SelectTrigger className="w-36">
+              <SelectValue placeholder="Filter tag" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Tags</SelectItem>
+              {allTags.map((tag) => (
+                <SelectItem key={tag} value={tag}>{tag}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Select value={sortBy} onValueChange={setSortBy}>
             <SelectTrigger className="w-40">
               <SelectValue placeholder="Sort by" />
@@ -301,9 +331,9 @@ export default function DecksPage() {
 
         {/* Legend */}
         <div className="flex gap-4 text-xs text-muted-foreground mb-6">
-          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-slate-300 dark:bg-slate-600" /> Private</span>
-          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-emerald-400 dark:bg-emerald-500" /> Public</span>
-          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-amber-400 dark:bg-amber-500" /> Cloned</span>
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-blue-300 dark:bg-slate-600" /> Private</span>
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-emerald-500" /> Public</span>
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-amber-500" /> Cloned</span>
         </div>
 
         {decks.length === 0 ? (
@@ -349,10 +379,15 @@ export default function DecksPage() {
                     </p>
                     <div className="flex items-center gap-3 text-sm mb-3">
                       <span>{deck._count.cards} cards</span>
-                      {deck.dueCount > 0 && (
+                      {deck.dueCount > 0 ? (
                         <span className="flex items-center gap-1 text-primary font-medium">
                           <Clock className="h-3 w-3" />
                           {deck.dueCount} due
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-1 text-emerald-500">
+                          <CheckCircle2 className="h-3 w-3" />
+                          All caught up!
                         </span>
                       )}
                     </div>
