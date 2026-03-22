@@ -335,7 +335,7 @@ export default function DecksPage() {
             <SelectContent>
               <SelectItem value="updatedAt">Last Modified</SelectItem>
               <SelectItem value="createdAt">Date Created</SelectItem>
-              <SelectItem value="lastAccessedAt">Last Accessed</SelectItem>
+              <SelectItem value="lastAccessedAt">Last Studied</SelectItem>
             </SelectContent>
           </Select>
         </div>

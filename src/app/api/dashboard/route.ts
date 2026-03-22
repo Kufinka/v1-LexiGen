@@ -63,7 +63,7 @@ export async function GET() {
 
       const count = await prisma.cardReview.count({
         where: {
-          session: { userId: session.user.id },
+          card: { deck: { userId: session.user.id } },
           createdAt: { gte: dayStart, lt: dayEnd },
         },
       });

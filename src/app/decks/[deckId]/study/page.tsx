@@ -163,32 +163,25 @@ export default function StudyPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, filter]);
 
-  // End session when user leaves the page or tab becomes hidden
+  // End session only when user actually leaves the page (not just switching tabs)
   useEffect(() => {
     const handleBeforeUnload = () => {
       if (sessionId) {
-        // Use sendBeacon for reliable delivery on page unload
-        navigator.sendBeacon(`/api/sessions/${sessionId}`, JSON.stringify({ end: true }));
-      }
-    };
-    const handleVisibilityChange = () => {
-      if (document.hidden && sessionId) {
-        endSession();
+        // sendBeacon with POST — handled by dedicated beacon endpoint
+        navigator.sendBeacon(`/api/sessions/${sessionId}/end`);
       }
     };
     window.addEventListener("beforeunload", handleBeforeUnload);
-    document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => {
       window.removeEventListener("beforeunload", handleBeforeUnload);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
       endSession();
     };
   }, [endSession, sessionId]);
 
   // Re-queue Again cards immediately from local state — no waiting
-  const requeueAgainCards = () => {
+  const requeueAgainCards = (updatedCards: StudyCard[]) => {
     const againIds = againCardIds.current;
-    const againCards = cards.filter((c) => againIds.has(c.id));
+    const againCards = updatedCards.filter((c) => againIds.has(c.id));
     if (againCards.length > 0) {
       setCards(againCards);
       setCurrentIndex(0);
@@ -232,13 +225,12 @@ export default function StudyPage() {
       ]);
 
       // Update the card's SRS values in local state
-      setCards((prev) =>
-        prev.map((c) =>
-          c.id === currentCard.id
-            ? { ...c, easeFactor: updatedCard.easeFactor, interval: updatedCard.interval, repetitions: updatedCard.repetitions }
-            : c
-        )
+      const newCards = cards.map((c) =>
+        c.id === currentCard.id
+          ? { ...c, easeFactor: updatedCard.easeFactor, interval: updatedCard.interval, repetitions: updatedCard.repetitions, nextReview: updatedCard.nextReview }
+          : c
       );
+      setCards(newCards);
 
       setReviewCount((prev) => prev + 1);
 
@@ -247,10 +239,10 @@ export default function StudyPage() {
         againCardIds.current.add(currentCard.id);
       }
 
-      if (currentIndex + 1 >= cards.length) {
+      if (currentIndex + 1 >= newCards.length) {
         // Re-queue Again cards immediately if any exist
         if (againCardIds.current.size > 0) {
-          requeueAgainCards();
+          requeueAgainCards(newCards);
         } else {
           setCompleted(true);
           endSession();

@@ -27,6 +27,14 @@ export const deckSchema = z.object({
   tags: z.array(z.string()).default([]),
 });
 
+export const deckUpdateSchema = z.object({
+  name: z.string().min(1, "Deck name is required").max(100),
+  description: z.string().max(500).optional(),
+  languageA: z.string().min(1).max(50).optional(),
+  languageB: z.string().min(1).max(50).optional(),
+  tags: z.array(z.string()).default([]),
+});
+
 export const cardSchema = z.object({
   sideA: z.string().min(1, "Side A is required"),
   sideB: z.string().min(1, "Side B is required"),

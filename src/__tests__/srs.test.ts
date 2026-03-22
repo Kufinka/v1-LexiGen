@@ -96,4 +96,16 @@ describe("SRS Algorithm (minute-based intervals for fast vocab learning)", () =>
     expect(result.interval).toBe(1);
     expect(result.repetitions).toBe(0);
   });
+
+  it("Again should reset Hard back to 5 min on next appearance", () => {
+    // Card was at Hard rep 2 (interval 10 min), user hits Again
+    const card = { easeFactor: 2.3, interval: 10, repetitions: 3 };
+    const againResult = calculateSRS(card, 1);
+    expect(againResult.repetitions).toBe(0);
+    expect(againResult.interval).toBe(1);
+    // Now on the re-queued card, Hard should be 5 min (first successful review)
+    const hardAfterAgain = calculateSRS(againResult, 2);
+    expect(hardAfterAgain.interval).toBe(5);
+    expect(hardAfterAgain.repetitions).toBe(1);
+  });
 });

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { deckSchema } from "@/lib/validations";
+import { deckUpdateSchema } from "@/lib/validations";
 
 export async function GET(req: Request, { params }: { params: { deckId: string } }) {
   try {
@@ -66,19 +66,29 @@ export async function PATCH(req: Request, { params }: { params: { deckId: string
       delete body.isClone;
     }
 
-    const result = deckSchema.safeParse(body);
+    const result = deckUpdateSchema.safeParse(body);
     if (!result.success) {
-      return NextResponse.json({ error: result.error.issues[0].message }, { status: 400 });
+      return NextResponse.json({ error: "Invalid input: " + result.error.issues[0].message }, { status: 400 });
     }
 
+    // Build update data — only include fields that were provided
+    const updateData: Record<string, unknown> = {
+      name: result.data.name,
+      tags: result.data.tags,
+    };
+    if (result.data.description !== undefined) updateData.description = result.data.description || null;
+    if (result.data.languageA) updateData.languageA = result.data.languageA;
+    if (result.data.languageB) updateData.languageB = result.data.languageB;
+    if (typeof body.isPublic === "boolean") updateData.isPublic = body.isPublic;
+
     // If making public, description is required
-    if (body.isPublic === true && !result.data.description && !deck.description) {
+    if (updateData.isPublic === true && !result.data.description && !deck.description) {
       return NextResponse.json({ error: "Public decks must have a description" }, { status: 400 });
     }
 
     const updated = await prisma.deck.update({
       where: { id: params.deckId },
-      data: { ...result.data, ...(typeof body.isPublic === "boolean" ? { isPublic: body.isPublic } : {}) },
+      data: updateData,
     });
 
     return NextResponse.json(updated);

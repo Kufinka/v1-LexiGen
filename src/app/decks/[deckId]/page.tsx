@@ -42,7 +42,6 @@ import {
   Clock,
 } from "lucide-react";
 import JSZip from "jszip";
-import initSqlJs from "sql.js";
 
 interface CardItem {
   id: string;
@@ -326,6 +325,7 @@ export default function DeckDetailPage() {
     if (!dbFile) throw new Error("No Anki database found in .apkg file. Files: " + allFiles.join(", "));
 
     const dbData = await dbFile.async("uint8array");
+    const initSqlJs = (await import("sql.js")).default;
     const SQL = await initSqlJs({
       locateFile: () => `/sql-wasm.wasm`,
     });

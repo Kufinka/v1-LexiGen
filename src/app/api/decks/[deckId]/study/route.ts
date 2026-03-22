@@ -16,9 +16,6 @@ export async function GET(req: Request, { params }: { params: { deckId: string }
       return NextResponse.json({ error: "Not found or forbidden" }, { status: 404 });
     }
 
-    // Update lastAccessedAt
-    await prisma.deck.update({ where: { id: params.deckId }, data: { lastAccessedAt: new Date() } });
-
     const { searchParams } = new URL(req.url);
     const filter = searchParams.get("filter") || "mixed";
 
@@ -87,6 +84,11 @@ export async function POST(req: Request, { params }: { params: { deckId: string 
           rating,
           sessionId: sessionId || null,
         },
+      }),
+      // Update lastAccessedAt to track when the deck was last studied
+      prisma.deck.update({
+        where: { id: params.deckId },
+        data: { lastAccessedAt: new Date() },
       }),
     ]);
 
