@@ -42,6 +42,7 @@ import {
   Clock,
 } from "lucide-react";
 import JSZip from "jszip";
+import { LANGUAGES } from "@/lib/languages";
 
 interface CardItem {
   id: string;
@@ -65,6 +66,7 @@ interface DeckDetail {
   isClone: boolean;
   createdAt: string;
   cards: CardItem[];
+  clonedFromUser: { id: string; username: string } | null;
   _count: { cards: number };
 }
 
@@ -104,7 +106,7 @@ export default function DeckDetailPage() {
   const [creating, setCreating] = useState(false);
   const [newCard, setNewCard] = useState({ sideA: "", sideB: "", type: "WORD" as "WORD" | "SENTENCE" });
   const [editingCard, setEditingCard] = useState<CardItem | null>(null);
-  const [editingDeck, setEditingDeck] = useState({ name: "", description: "", tags: "" });
+  const [editingDeck, setEditingDeck] = useState({ name: "", description: "", languageA: "", languageB: "", tags: "" });
   const [selectedWords, setSelectedWords] = useState<string[]>([]);
   const [aiSentences, setAiSentences] = useState<{ sideA: string; sideB: string }[]>([]);
   const [aiSelectedIndices, setAiSelectedIndices] = useState<number[]>([]);
@@ -202,6 +204,8 @@ export default function DeckDetailPage() {
     setEditingDeck({
       name: deck.name,
       description: deck.description || "",
+      languageA: deck.languageA,
+      languageB: deck.languageB,
       tags: deck.tags.join(", "),
     });
     setDeckEditDialogOpen(true);
@@ -222,6 +226,8 @@ export default function DeckDetailPage() {
         body: JSON.stringify({
           name: editingDeck.name,
           description: editingDeck.description || undefined,
+          languageA: editingDeck.languageA,
+          languageB: editingDeck.languageB,
           tags: Array.from(new Set(rawTags)),
         }),
       });
@@ -534,7 +540,10 @@ export default function DeckDetailPage() {
               <h1 className="text-3xl font-bold">{deck.name}</h1>
               {deck.isClone && (
                 <Badge variant="outline" className="text-xs border-amber-400 text-amber-600 dark:text-amber-400">
-                  <Copy className="h-3 w-3 mr-1" /> Cloned
+                  <Copy className="h-3 w-3 mr-1" />
+                  {deck.clonedFromUser
+                    ? <span>Cloned from <Link href={`/profile/${deck.clonedFromUser.id}`} className="underline hover:text-amber-700 dark:hover:text-amber-300" onClick={(e) => e.stopPropagation()}>{deck.clonedFromUser.username}</Link></span>
+                    : "Cloned"}
                 </Badge>
               )}
             </div>
@@ -853,28 +862,58 @@ export default function DeckDetailPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Edit Deck Info</DialogTitle>
-            <DialogDescription>Update deck name, description, and tags.</DialogDescription>
+            <DialogDescription>Update your deck details.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
               <Label>Deck Name</Label>
               <Input
+                placeholder="e.g., Travel"
                 value={editingDeck.name}
                 onChange={(e) => setEditingDeck({ ...editingDeck, name: e.target.value })}
               />
             </div>
             <div className="space-y-2">
-              <Label>Description</Label>
+              <Label>Description (optional)</Label>
               <Textarea
                 placeholder="Describe your deck..."
                 value={editingDeck.description}
                 onChange={(e) => setEditingDeck({ ...editingDeck, description: e.target.value })}
-                rows={3}
+                rows={2}
               />
             </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Language A</Label>
+                <Select value={editingDeck.languageA} onValueChange={(v) => setEditingDeck({ ...editingDeck, languageA: v })}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select language" />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-60">
+                    {LANGUAGES.map((lang) => (
+                      <SelectItem key={lang.code} value={lang.name}>{lang.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Language B</Label>
+                <Select value={editingDeck.languageB} onValueChange={(v) => setEditingDeck({ ...editingDeck, languageB: v })}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select language" />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-60">
+                    {LANGUAGES.map((lang) => (
+                      <SelectItem key={lang.code} value={lang.name}>{lang.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
             <div className="space-y-2">
-              <Label>Tags (comma separated)</Label>
+              <Label>Tags (comma separated, max 20 chars each)</Label>
               <Input
+                placeholder="e.g., travel, beginner, japan"
                 value={editingDeck.tags}
                 onChange={(e) => setEditingDeck({ ...editingDeck, tags: e.target.value })}
               />
@@ -882,7 +921,7 @@ export default function DeckDetailPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeckEditDialogOpen(false)}>Cancel</Button>
-            <Button onClick={saveDeckEdit} disabled={!editingDeck.name}>Save</Button>
+            <Button onClick={saveDeckEdit} disabled={!editingDeck.name || !editingDeck.languageA || !editingDeck.languageB}>Save</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

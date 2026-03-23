@@ -28,7 +28,19 @@ export async function GET(req: Request, { params }: { params: { deckId: string }
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    return NextResponse.json(deck);
+    // Resolve the original owner for cloned decks
+    let clonedFromUser: { id: string; username: string } | null = null;
+    if (deck.isClone && deck.clonedFromId) {
+      const originalDeck = await prisma.deck.findUnique({
+        where: { id: deck.clonedFromId },
+        select: { user: { select: { id: true, username: true } } },
+      });
+      if (originalDeck) {
+        clonedFromUser = originalDeck.user;
+      }
+    }
+
+    return NextResponse.json({ ...deck, clonedFromUser });
   } catch (error) {
     console.error("Error fetching deck:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
@@ -56,7 +68,7 @@ export async function PATCH(req: Request, { params }: { params: { deckId: string
       }
       const updated = await prisma.deck.update({
         where: { id: params.deckId },
-        data: { isPublic: body.isPublic },
+        data: { isPublic: body.isPublic, updatedAt: new Date() },
       });
       return NextResponse.json(updated);
     }
@@ -75,6 +87,7 @@ export async function PATCH(req: Request, { params }: { params: { deckId: string
     const updateData: Record<string, unknown> = {
       name: result.data.name,
       tags: result.data.tags,
+      updatedAt: new Date(),
     };
     if (result.data.description !== undefined) updateData.description = result.data.description || null;
     if (result.data.languageA) updateData.languageA = result.data.languageA;

@@ -31,6 +31,7 @@ export async function POST(req: Request, { params }: { params: { deckId: string 
         tags: deck.tags,
         isClone: true,
         isPublic: false,
+        clonedFromId: deck.id,
         userId: session.user.id,
         cards: {
           create: deck.cards.map((card: { sideA: string; sideB: string; type: "WORD" | "SENTENCE" }) => ({

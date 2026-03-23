@@ -36,6 +36,7 @@ export async function PATCH(
       where: { id: params.cardId, deckId: params.deckId },
       data: { ...result.data, ...srsData },
     });
+    await prisma.deck.update({ where: { id: params.deckId }, data: { updatedAt: new Date() } });
 
     return NextResponse.json(card);
   } catch (error) {
@@ -60,6 +61,7 @@ export async function DELETE(
     }
 
     await prisma.card.delete({ where: { id: params.cardId, deckId: params.deckId } });
+    await prisma.deck.update({ where: { id: params.deckId }, data: { updatedAt: new Date() } });
 
     return NextResponse.json({ message: "Card deleted" });
   } catch (error) {

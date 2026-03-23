@@ -29,6 +29,7 @@ export async function POST(req: Request, { params }: { params: { deckId: string 
         cards.push({ ...result.data, deckId: params.deckId });
       }
       const created = await prisma.card.createMany({ data: cards });
+      await prisma.deck.update({ where: { id: params.deckId }, data: { updatedAt: new Date() } });
       return NextResponse.json({ count: created.count }, { status: 201 });
     }
 
@@ -40,6 +41,7 @@ export async function POST(req: Request, { params }: { params: { deckId: string 
     const card = await prisma.card.create({
       data: { ...result.data, deckId: params.deckId },
     });
+    await prisma.deck.update({ where: { id: params.deckId }, data: { updatedAt: new Date() } });
 
     return NextResponse.json(card, { status: 201 });
   } catch (error) {
