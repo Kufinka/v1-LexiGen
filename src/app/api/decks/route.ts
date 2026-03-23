@@ -46,7 +46,28 @@ export async function GET(req: Request) {
       return { ...rest, dueCount };
     });
 
-    return NextResponse.json(decksWithDue);
+    // Resolve clonedFromUser for cloned decks
+    const clonedFromIds = decksWithDue
+      .filter((d) => d.isClone && d.clonedFromId)
+      .map((d) => d.clonedFromId as string);
+
+    let clonedFromMap: Record<string, { id: string; username: string }> = {};
+    if (clonedFromIds.length > 0) {
+      const originalDecks = await prisma.deck.findMany({
+        where: { id: { in: clonedFromIds } },
+        select: { id: true, user: { select: { id: true, username: true } } },
+      });
+      clonedFromMap = Object.fromEntries(
+        originalDecks.map((d) => [d.id, d.user])
+      );
+    }
+
+    const result = decksWithDue.map((d) => ({
+      ...d,
+      clonedFromUser: d.clonedFromId ? clonedFromMap[d.clonedFromId] || null : null,
+    }));
+
+    return NextResponse.json(result);
   } catch (error) {
     console.error("Error fetching decks:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

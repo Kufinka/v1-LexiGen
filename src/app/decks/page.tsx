@@ -41,8 +41,10 @@ interface Deck {
   isPublic: boolean;
   isClone: boolean;
   createdAt: string;
+  updatedAt: string;
   lastAccessedAt: string;
   dueCount: number;
+  clonedFromUser: { id: string; username: string } | null;
   _count: { cards: number };
 }
 
@@ -408,13 +410,18 @@ export default function DecksPage() {
                       ))}
                       {deck.isClone && (
                         <Badge variant="outline" className="text-xs border-amber-400 text-amber-600 dark:text-amber-400">
-                          <Copy className="h-3 w-3 mr-1" /> Cloned
+                          <Copy className="h-3 w-3 mr-1" />
+                          {deck.clonedFromUser
+                            ? `Cloned from ${deck.clonedFromUser.username}`
+                            : "Cloned"}
                         </Badge>
                       )}
                     </div>
-                    <p className="text-xs text-muted-foreground mt-2">
-                      Created {new Date(deck.createdAt).toLocaleDateString()}
-                    </p>
+                    <div className="text-xs text-muted-foreground mt-2 space-y-0.5">
+                      <p>Last Studied {new Date(deck.lastAccessedAt).toLocaleDateString()}</p>
+                      <p>Last Modified {new Date(deck.updatedAt).toLocaleDateString()}</p>
+                      <p>Created {new Date(deck.createdAt).toLocaleDateString()}</p>
+                    </div>
                   </Link>
                 </CardContent>
               </Card>
