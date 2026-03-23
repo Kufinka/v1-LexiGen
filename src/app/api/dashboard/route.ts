@@ -3,15 +3,23 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    const { searchParams } = new URL(req.url);
     const now = new Date();
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    // Allow fetching data for a specific month/year
+    const qYear = searchParams.get("year");
+    const qMonth = searchParams.get("month"); // 0-indexed
+    const chartYear = qYear ? parseInt(qYear, 10) : now.getFullYear();
+    const chartMonth = qMonth ? parseInt(qMonth, 10) : now.getMonth();
+
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
     // Total reviews today — query via card→deck→userId so reviews with null sessionId are included
@@ -76,13 +84,13 @@ export async function GET() {
       }
     }
 
-    // Daily data for the month chart
+    // Daily data for the selected month chart
     const dailyData = [];
-    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const daysInMonth = new Date(chartYear, chartMonth + 1, 0).getDate();
 
     for (let day = 1; day <= daysInMonth; day++) {
-      const dayStart = new Date(now.getFullYear(), now.getMonth(), day);
-      const dayEnd = new Date(now.getFullYear(), now.getMonth(), day + 1);
+      const dayStart = new Date(chartYear, chartMonth, day);
+      const dayEnd = new Date(chartYear, chartMonth, day + 1);
 
       const reviews = await prisma.cardReview.count({
         where: {
@@ -119,6 +127,8 @@ export async function GET() {
       hoursStudiedToday: Math.round(hoursStudiedToday * 100) / 100,
       streak,
       dailyData,
+      chartYear,
+      chartMonth,
     });
   } catch (error) {
     console.error("Error fetching dashboard:", error);

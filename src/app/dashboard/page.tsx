@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { Navbar } from "@/components/navbar";
@@ -13,7 +13,10 @@ import {
   Flame,
   Clock,
   Calendar,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import {
   BarChart,
   Bar,
@@ -24,17 +27,21 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
+interface DailyEntry {
+  day: number;
+  date: string;
+  reviews: number;
+  minutes: number;
+}
+
 interface DashboardData {
   todayReviews: number;
   monthReviews: number;
   hoursStudiedToday: number;
   streak: number;
-  dailyData: {
-    day: number;
-    date: string;
-    reviews: number;
-    minutes: number;
-  }[];
+  dailyData: DailyEntry[];
+  chartYear: number;
+  chartMonth: number;
 }
 
 export default function DashboardPage() {
@@ -44,6 +51,10 @@ export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [chartMode, setChartMode] = useState<"reviews" | "time">("reviews");
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
+  const [chartData, setChartData] = useState<DailyEntry[]>([]);
+  const [chartLoading, setChartLoading] = useState(false);
 
   useEffect(() => {
     if (status === "unauthenticated") router.push("/login");
@@ -60,6 +71,7 @@ export default function DashboardPage() {
       if (res.ok) {
         const dashData = await res.json();
         setData(dashData);
+        setChartData(dashData.dailyData);
       }
     } catch {
       toast({ title: "Error", description: "Failed to load dashboard", variant: "destructive" });
@@ -67,6 +79,46 @@ export default function DashboardPage() {
       setLoading(false);
     }
   };
+
+  const fetchChartData = useCallback(async (year: number, month: number) => {
+    setChartLoading(true);
+    try {
+      const res = await fetch(`/api/dashboard?year=${year}&month=${month}`);
+      if (res.ok) {
+        const d = await res.json();
+        setChartData(d.dailyData);
+      }
+    } catch {
+      toast({ title: "Error", description: "Failed to load chart data", variant: "destructive" });
+    } finally {
+      setChartLoading(false);
+    }
+  }, [toast]);
+
+  const goToPrevMonth = () => {
+    let newMonth = selectedMonth - 1;
+    let newYear = selectedYear;
+    if (newMonth < 0) { newMonth = 11; newYear--; }
+    setSelectedMonth(newMonth);
+    setSelectedYear(newYear);
+    fetchChartData(newYear, newMonth);
+  };
+
+  const goToNextMonth = () => {
+    const now = new Date();
+    let newMonth = selectedMonth + 1;
+    let newYear = selectedYear;
+    if (newMonth > 11) { newMonth = 0; newYear++; }
+    // Don't allow navigating past the current month
+    if (newYear > now.getFullYear() || (newYear === now.getFullYear() && newMonth > now.getMonth())) return;
+    setSelectedMonth(newMonth);
+    setSelectedYear(newYear);
+    fetchChartData(newYear, newMonth);
+  };
+
+  const isCurrentMonth = selectedYear === new Date().getFullYear() && selectedMonth === new Date().getMonth();
+
+  const monthLabel = new Date(selectedYear, selectedMonth).toLocaleString("default", { month: "long", year: "numeric" });
 
   if (status === "loading" || loading) {
     return (
@@ -144,12 +196,25 @@ export default function DashboardPage() {
                 </TabsList>
               </Tabs>
             </div>
+            <div className="flex items-center justify-center gap-3 pt-2">
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={goToPrevMonth}>
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <span className="text-sm font-medium min-w-[140px] text-center">{monthLabel}</span>
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={goToNextMonth} disabled={isCurrentMonth}>
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
             <div className="h-[300px] w-full">
-              {data?.dailyData && data.dailyData.length > 0 ? (
+              {chartLoading ? (
+                <div className="flex items-center justify-center h-full">
+                  <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                </div>
+              ) : chartData.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={data.dailyData}>
+                  <BarChart data={chartData}>
                     <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
                     <XAxis
                       dataKey="day"
@@ -186,7 +251,7 @@ export default function DashboardPage() {
                 </ResponsiveContainer>
               ) : (
                 <div className="flex items-center justify-center h-full text-muted-foreground">
-                  No data yet. Start studying to see your progress!
+                  No study activity for {monthLabel}.
                 </div>
               )}
             </div>
