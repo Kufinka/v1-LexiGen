@@ -26,6 +26,14 @@ export async function POST(req: Request, { params }: { params: { deckId: string 
       return NextResponse.json({ error: "You cannot rate your own deck" }, { status: 403 });
     }
 
+    // Only allow rating if user has cloned this deck
+    const hasCloned = await prisma.deck.findFirst({
+      where: { userId: session.user.id, isClone: true, clonedFromId: params.deckId },
+    });
+    if (!hasCloned) {
+      return NextResponse.json({ error: "You must clone this deck before you can rate it" }, { status: 403 });
+    }
+
     const rating = await prisma.deckRating.upsert({
       where: { userId_deckId: { userId: session.user.id, deckId: params.deckId } },
       update: { score },

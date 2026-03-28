@@ -34,6 +34,7 @@ import {
   Loader2,
   Users,
   Pencil,
+  ThumbsUp,
 } from "lucide-react";
 
 interface CommunityDeck {
@@ -54,6 +55,8 @@ interface Comment {
   content: string;
   createdAt: string;
   userRating: number | null;
+  upvoteCount: number;
+  hasUpvoted: boolean;
   user: { id: string; username: string; image: string | null };
 }
 
@@ -75,6 +78,8 @@ export default function CommunityPage() {
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
   const [editCommentText, setEditCommentText] = useState("");
   const [detailOpen, setDetailOpen] = useState(false);
+  const [hasCloned, setHasCloned] = useState(false);
+  const [commentSort, setCommentSort] = useState<"newest" | "upvotes">("newest");
 
   useEffect(() => {
     if (status === "unauthenticated") router.push("/login");
@@ -137,17 +142,26 @@ export default function CommunityPage() {
     setReviewRating(0);
     setReviewComment("");
     setEditingCommentId(null);
+    setHasCloned(false);
+    setCommentSort("newest");
     try {
-      const res = await fetch(`/api/decks/${deck.id}/comments`);
-      if (res.ok) {
-        const data = await res.json();
+      const [commentsRes, decksRes] = await Promise.all([
+        fetch(`/api/decks/${deck.id}/comments`),
+        fetch(`/api/decks?search=`),
+      ]);
+      if (commentsRes.ok) {
+        const data = await commentsRes.json();
         setComments(data);
-        // If user already has a comment, pre-fill the review section
         const ownComment = data.find((c: Comment) => c.user.id === session?.user?.id);
         if (ownComment) {
           setReviewComment(ownComment.content);
           setReviewRating(ownComment.userRating || 0);
         }
+      }
+      if (decksRes.ok) {
+        const userDecks = await decksRes.json();
+        const cloned = userDecks.some((d: { isClone: boolean; clonedFromId: string | null }) => d.isClone && d.clonedFromId === deck.id);
+        setHasCloned(cloned);
       }
     } catch {
       // Silently fail
@@ -241,6 +255,37 @@ export default function CommunityPage() {
   const hasExistingReview = useMemo(() => {
     return comments.some((c) => c.user.id === session?.user?.id);
   }, [comments, session?.user?.id]);
+
+  const toggleUpvote = async (commentId: string) => {
+    try {
+      const res = await fetch(`/api/comments/${commentId}/upvote`, { method: "POST" });
+      if (res.ok) {
+        const { upvoted } = await res.json();
+        setComments((prev) =>
+          prev.map((c) =>
+            c.id === commentId
+              ? { ...c, hasUpvoted: upvoted, upvoteCount: c.upvoteCount + (upvoted ? 1 : -1) }
+              : c
+          )
+        );
+      } else {
+        const data = await res.json();
+        toast({ title: "Error", description: data.error, variant: "destructive" });
+      }
+    } catch {
+      toast({ title: "Error", description: "Failed to toggle upvote", variant: "destructive" });
+    }
+  };
+
+  const sortedComments = useMemo(() => {
+    const sorted = [...comments];
+    if (commentSort === "upvotes") {
+      sorted.sort((a, b) => b.upvoteCount - a.upvoteCount);
+    } else {
+      sorted.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    }
+    return sorted;
+  }, [comments, commentSort]);
 
   if (status === "loading") {
     return (
@@ -403,6 +448,8 @@ export default function CommunityPage() {
                   {/* Combined Review: Rating + Comment */}
                   {isOwnDeck(selectedDeck) ? (
                     <p className="text-sm text-muted-foreground italic">You cannot review your own deck.</p>
+                  ) : !hasCloned ? (
+                    <p className="text-sm text-muted-foreground italic">Clone this deck first to leave a review.</p>
                   ) : hasExistingReview ? (
                     <p className="text-sm text-muted-foreground italic">You have already reviewed this deck. Use the edit button on your review below to make changes.</p>
                   ) : (
@@ -447,12 +494,25 @@ export default function CommunityPage() {
 
                   {/* Comments/Reviews List */}
                   <div>
-                    <p className="text-sm font-medium mb-2 flex items-center gap-2">
-                      <MessageCircle className="h-4 w-4" />
-                      Reviews ({comments.length})
-                    </p>
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-sm font-medium flex items-center gap-2">
+                        <MessageCircle className="h-4 w-4" />
+                        Reviews ({comments.length})
+                      </p>
+                      {comments.length > 1 && (
+                        <Select value={commentSort} onValueChange={(v) => setCommentSort(v as "newest" | "upvotes")}>
+                          <SelectTrigger className="w-36 h-8 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="newest">Newest</SelectItem>
+                            <SelectItem value="upvotes">Most Upvoted</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      )}
+                    </div>
                     <div className="space-y-3">
-                      {comments.map((comment) => (
+                      {sortedComments.map((comment) => (
                         <div key={comment.id} className="p-3 rounded-lg bg-muted/50">
                           <div className="flex items-center gap-2 mb-1">
                             <AvatarDisplay imageStr={comment.user.image} fallbackInitial={comment.user.username} size={20} />
@@ -489,7 +549,28 @@ export default function CommunityPage() {
                               </div>
                             </div>
                           ) : (
-                            <p className="text-sm">{comment.content}</p>
+                            <>
+                              <p className="text-sm">{comment.content}</p>
+                              {comment.user.id !== session?.user?.id && (
+                                <button
+                                  className={`flex items-center gap-1 mt-1.5 text-xs transition-colors ${
+                                    comment.hasUpvoted
+                                      ? "text-primary font-medium"
+                                      : "text-muted-foreground hover:text-primary"
+                                  }`}
+                                  onClick={() => toggleUpvote(comment.id)}
+                                >
+                                  <ThumbsUp className={`h-3 w-3 ${comment.hasUpvoted ? "fill-primary" : ""}`} />
+                                  {comment.upvoteCount > 0 && comment.upvoteCount}
+                                </button>
+                              )}
+                              {comment.user.id === session?.user?.id && comment.upvoteCount > 0 && (
+                                <span className="flex items-center gap-1 mt-1.5 text-xs text-muted-foreground">
+                                  <ThumbsUp className="h-3 w-3" />
+                                  {comment.upvoteCount}
+                                </span>
+                              )}
+                            </>
                           )}
                         </div>
                       ))}

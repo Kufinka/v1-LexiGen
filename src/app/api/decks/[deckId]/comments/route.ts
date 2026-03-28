@@ -6,9 +6,15 @@ import { commentSchema } from "@/lib/validations";
 
 export async function GET(req: Request, { params }: { params: { deckId: string } }) {
   try {
+    const session = await getServerSession(authOptions);
+    const currentUserId = session?.user?.id || null;
+
     const comments = await prisma.deckComment.findMany({
       where: { deckId: params.deckId },
-      include: { user: { select: { id: true, username: true, image: true } } },
+      include: {
+        user: { select: { id: true, username: true, image: true } },
+        _count: { select: { upvotes: true } },
+      },
       orderBy: { createdAt: "desc" },
     });
 
@@ -18,9 +24,21 @@ export async function GET(req: Request, { params }: { params: { deckId: string }
     });
     const ratingMap = new Map(ratings.map((r) => [r.userId, r.score]));
 
+    // Check which comments the current user has upvoted
+    let userUpvotedCommentIds: Set<string> = new Set();
+    if (currentUserId) {
+      const userUpvotes = await prisma.commentUpvote.findMany({
+        where: { userId: currentUserId, comment: { deckId: params.deckId } },
+        select: { commentId: true },
+      });
+      userUpvotedCommentIds = new Set(userUpvotes.map((u) => u.commentId));
+    }
+
     const commentsWithRating = comments.map((c) => ({
       ...c,
       userRating: ratingMap.get(c.userId) || null,
+      upvoteCount: c._count.upvotes,
+      hasUpvoted: userUpvotedCommentIds.has(c.id),
     }));
 
     return NextResponse.json(commentsWithRating);
@@ -50,6 +68,14 @@ export async function POST(req: Request, { params }: { params: { deckId: string 
 
     if (deck.userId === session.user.id) {
       return NextResponse.json({ error: "You cannot comment on your own deck" }, { status: 403 });
+    }
+
+    // Only allow commenting if user has cloned this deck
+    const hasCloned = await prisma.deck.findFirst({
+      where: { userId: session.user.id, isClone: true, clonedFromId: params.deckId },
+    });
+    if (!hasCloned) {
+      return NextResponse.json({ error: "You must clone this deck before you can review it" }, { status: 403 });
     }
 
     // One comment per user per deck (upsert)

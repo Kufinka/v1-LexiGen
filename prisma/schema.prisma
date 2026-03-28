@@ -17,10 +17,11 @@ model User {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  decks         Deck[]
-  ratings       DeckRating[]
-  comments      DeckComment[]
-  studySessions StudySession[]
+  decks           Deck[]
+  ratings         DeckRating[]
+  comments        DeckComment[]
+  commentUpvotes  CommentUpvote[]
+  studySessions   StudySession[]
 }
 
 model Deck {
@@ -125,8 +126,24 @@ model DeckComment {
   deckId    String
   deck      Deck     @relation(fields: [deckId], references: [id], onDelete: Cascade)
 
+  upvotes   CommentUpvote[]
+
   @@unique([userId, deckId])
   @@index([deckId])
+}
+
+model CommentUpvote {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  commentId String
+  comment   DeckComment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, commentId])
+  @@index([commentId])
 }
 
 enum CardType {
