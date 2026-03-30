@@ -12,9 +12,22 @@ export async function POST(req: Request, { params }: { params: { sessionId: stri
       return NextResponse.json({ ok: true });
     }
 
+    let activeSeconds: number | undefined;
+    try {
+      const body = await req.json();
+      if (typeof body.activeSeconds === "number" && body.activeSeconds >= 0) {
+        activeSeconds = Math.round(body.activeSeconds);
+      }
+    } catch {
+      // No body — that's fine
+    }
+
     await prisma.studySession.update({
       where: { id: params.sessionId },
-      data: { endedAt: new Date() },
+      data: {
+        endedAt: new Date(),
+        ...(activeSeconds !== undefined ? { activeSeconds } : {}),
+      },
     });
 
     return NextResponse.json({ ok: true });

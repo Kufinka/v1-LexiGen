@@ -62,9 +62,12 @@ function getNextReviewLabel(card: StudyCard, rating: number): string {
     rating
   );
   const mins = result.interval;
-  if (mins <= 1) return "<1 min";
+  if (mins <= 10) return `<${mins} min`;
   if (mins < 60) return `${mins} min`;
-  if (mins < 24 * 60) return `${Math.round(mins / 60)} hr`;
+  if (mins < 24 * 60) {
+    const hrs = mins / 60;
+    return hrs === Math.floor(hrs) ? `${hrs} hr` : `${hrs.toFixed(1)} hr`;
+  }
   const days = Math.round(mins / (24 * 60));
   if (days === 1) return "1 day";
   if (days < 30) return `${days} days`;
@@ -79,8 +82,10 @@ export default function StudyPage() {
   const deckId = params.deckId as string;
   const { toast } = useToast();
 
-  const [cards, setCards] = useState<StudyCard[]>([]);
-  const [currentIndex, setCurrentIndex] = useState(0);
+  // All cards from the deck (master list — updated with SRS values after each review)
+  const [allCards, setAllCards] = useState<StudyCard[]>([]);
+  // The current card being shown
+  const [currentCard, setCurrentCard] = useState<StudyCard | null>(null);
   const [flipped, setFlipped] = useState(false);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("mixed");
@@ -91,8 +96,81 @@ export default function StudyPage() {
   const [reviewCount, setReviewCount] = useState(0);
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
   const [srsInfoOpen, setSrsInfoOpen] = useState(false);
-  const sessionStartRef = useRef<number>(Date.now());
-  const againCardIds = useRef<Set<string>>(new Set());
+  // Queue counters for UI display
+  const [queueCounts, setQueueCounts] = useState({ newCount: 0, learningCount: 0, dueCount: 0 });
+  const [waitingForLearning, setWaitingForLearning] = useState(false);
+  const learningTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const activeSecondsRef = useRef(0);
+  const timerActiveRef = useRef(false);
+  const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const idleTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const IDLE_TIMEOUT = 120_000; // 120 seconds
+
+  // --- 3-Queue classification ---
+  // Learning: interval <= 10 min AND has been reviewed at least once in this session (repetitions > 0)
+  // Due: interval > 10 min AND nextReview <= now (mature cards that are due)
+  // New: repetitions === 0 AND nextReview <= now (never reviewed)
+  const LEARNING_THRESHOLD = 10; // minutes
+
+  const classifyCards = useCallback((cards: StudyCard[]) => {
+    const now = new Date();
+    const newQueue: StudyCard[] = [];
+    const learningQueue: StudyCard[] = [];
+    const dueQueue: StudyCard[] = [];
+    const waitingLearning: StudyCard[] = [];
+
+    for (const card of cards) {
+      const isDue = new Date(card.nextReview) <= now;
+      if (card.repetitions === 0 && isDue) {
+        newQueue.push(card);
+      } else if (card.interval <= LEARNING_THRESHOLD && card.repetitions > 0) {
+        if (isDue) {
+          learningQueue.push(card); // Due learning — highest priority
+        } else {
+          waitingLearning.push(card); // Learning but not yet due — will loop back
+        }
+      } else if (isDue && card.repetitions > 0) {
+        dueQueue.push(card);
+      }
+      // Cards with interval > 10 that aren't due yet are simply not shown
+    }
+
+    return { newQueue, learningQueue, dueQueue, waitingLearning };
+  }, []);
+
+  const pickNextCard = useCallback((cards: StudyCard[]): StudyCard | null => {
+    const { learningQueue, dueQueue, newQueue, waitingLearning } = classifyCards(cards);
+
+    setQueueCounts({
+      newCount: newQueue.length,
+      learningCount: learningQueue.length + waitingLearning.length,
+      dueCount: dueQueue.length,
+    });
+
+    // Priority: due learning → due → new
+    if (learningQueue.length > 0) return learningQueue[0];
+    if (dueQueue.length > 0) return dueQueue[0];
+    if (newQueue.length > 0) return newQueue[0];
+
+    // If there are learning cards waiting, schedule a check
+    if (waitingLearning.length > 0) {
+      // Find soonest due learning card
+      const soonest = waitingLearning.reduce((a, b) =>
+        new Date(a.nextReview) < new Date(b.nextReview) ? a : b
+      );
+      const waitMs = Math.max(0, new Date(soonest.nextReview).getTime() - Date.now());
+      setWaitingForLearning(true);
+      if (learningTimerRef.current) clearTimeout(learningTimerRef.current);
+      learningTimerRef.current = setTimeout(() => {
+        setWaitingForLearning(false);
+        // Re-pick — the card should now be due
+        setAllCards((prev) => [...prev]); // trigger re-render
+      }, waitMs + 100); // small buffer
+      return null;
+    }
+
+    return null; // truly done
+  }, [classifyCards]);
 
   const x = useMotionValue(0);
   const rotate = useTransform(x, [-200, 200], [-25, 25]);
@@ -109,21 +187,50 @@ export default function StudyPage() {
     try {
       const res = await fetch(`/api/decks/${deckId}/study?filter=${filter}`);
       if (res.ok) {
-        const data = await res.json();
-        setCards(data);
-        setCurrentIndex(0);
+        const data: StudyCard[] = await res.json();
+        setAllCards(data);
         setFlipped(false);
         setHistory([]);
-        setCompleted(data.length === 0);
         setReviewCount(0);
-        againCardIds.current.clear();
+        setWaitingForLearning(false);
+        if (learningTimerRef.current) clearTimeout(learningTimerRef.current);
+        const next = pickNextCard(data);
+        setCurrentCard(next);
+        setCompleted(!next && classifyCards(data).waitingLearning.length === 0);
       }
     } catch {
       toast({ title: "Error", description: "Failed to load study cards", variant: "destructive" });
     } finally {
       setLoading(false);
     }
-  }, [deckId, filter, toast]);
+  }, [deckId, filter, toast, pickNextCard, classifyCards]);
+
+  const startTimer = useCallback(() => {
+    if (timerActiveRef.current) return;
+    timerActiveRef.current = true;
+    timerIntervalRef.current = setInterval(() => {
+      activeSecondsRef.current += 1;
+    }, 1000);
+  }, []);
+
+  const stopTimer = useCallback(() => {
+    timerActiveRef.current = false;
+    if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current);
+      timerIntervalRef.current = null;
+    }
+  }, []);
+
+  const resetIdleTimer = useCallback(() => {
+    if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+    // If timer was stopped due to idle, restart it
+    if (!timerActiveRef.current && document.visibilityState === "visible") {
+      startTimer();
+    }
+    idleTimerRef.current = setTimeout(() => {
+      stopTimer();
+    }, IDLE_TIMEOUT);
+  }, [startTimer, stopTimer]);
 
   const startSession = useCallback(async () => {
     try {
@@ -131,30 +238,43 @@ export default function StudyPage() {
       if (res.ok) {
         const data = await res.json();
         setSessionId(data.id);
-        sessionStartRef.current = Date.now();
+        activeSecondsRef.current = 0;
+        startTimer();
+        resetIdleTimer();
       }
     } catch {
       // Session tracking is optional
     }
-  }, []);
+  }, [startTimer, resetIdleTimer]);
 
   const endSession = useCallback(async () => {
     if (sessionId) {
       const id = sessionId;
       setSessionId(null);
+      stopTimer();
+      if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
       try {
-        await fetch(`/api/sessions/${id}`, { method: "PATCH" });
+        await fetch(`/api/sessions/${id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ activeSeconds: activeSecondsRef.current }),
+        });
       } catch {
         // ignore
       }
     }
-  }, [sessionId]);
+  }, [sessionId, stopTimer]);
 
   useEffect(() => {
     if (session) {
       // End previous session before starting a new one (e.g. filter change)
       if (sessionId) {
-        fetch(`/api/sessions/${sessionId}`, { method: "PATCH" }).catch(() => {});
+        stopTimer();
+        fetch(`/api/sessions/${sessionId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ activeSeconds: activeSecondsRef.current }),
+        }).catch(() => {});
         setSessionId(null);
       }
       fetchCards();
@@ -163,12 +283,47 @@ export default function StudyPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, filter]);
 
-  // End session only when user actually leaves the page (not just switching tabs)
+  // Visibility & focus: pause/resume timer
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        stopTimer();
+      } else if (sessionId) {
+        startTimer();
+        resetIdleTimer();
+      }
+    };
+    const handleBlur = () => stopTimer();
+    const handleFocus = () => {
+      if (sessionId) {
+        startTimer();
+        resetIdleTimer();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    window.addEventListener("blur", handleBlur);
+    window.addEventListener("focus", handleFocus);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("blur", handleBlur);
+      window.removeEventListener("focus", handleFocus);
+    };
+  }, [sessionId, startTimer, stopTimer, resetIdleTimer]);
+
+  // Idle detection: any user interaction resets idle timer
+  useEffect(() => {
+    const events = ["mousemove", "mousedown", "keydown", "touchstart", "scroll"];
+    const handler = () => resetIdleTimer();
+    events.forEach((e) => window.addEventListener(e, handler, { passive: true }));
+    return () => { events.forEach((e) => window.removeEventListener(e, handler)); };
+  }, [resetIdleTimer]);
+
+  // End session on page unload
   useEffect(() => {
     const handleBeforeUnload = () => {
       if (sessionId) {
-        // sendBeacon with POST — handled by dedicated beacon endpoint
-        navigator.sendBeacon(`/api/sessions/${sessionId}/end`);
+        const blob = new Blob([JSON.stringify({ activeSeconds: activeSecondsRef.current })], { type: "application/json" });
+        navigator.sendBeacon(`/api/sessions/${sessionId}/end`, blob);
       }
     };
     window.addEventListener("beforeunload", handleBeforeUnload);
@@ -178,23 +333,36 @@ export default function StudyPage() {
     };
   }, [endSession, sessionId]);
 
-  // Re-queue Again cards immediately from local state — no waiting
-  const requeueAgainCards = (updatedCards: StudyCard[]) => {
-    const againIds = againCardIds.current;
-    const againCards = updatedCards.filter((c) => againIds.has(c.id));
-    if (againCards.length > 0) {
-      setCards(againCards);
-      setCurrentIndex(0);
-      setFlipped(false);
-      againCardIds.current.clear();
-    } else {
-      setCompleted(true);
-      endSession();
+  // When allCards changes (e.g. from learning timer re-trigger), re-pick next card
+  useEffect(() => {
+    if (!loading && allCards.length > 0 && !currentCard) {
+      const next = pickNextCard(allCards);
+      if (next) {
+        setCurrentCard(next);
+        setFlipped(false);
+        setCompleted(false);
+      }
     }
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allCards]);
+
+  const advanceToNext = useCallback((updatedCards: StudyCard[]) => {
+    const next = pickNextCard(updatedCards);
+    if (next) {
+      setCurrentCard(next);
+      setFlipped(false);
+    } else {
+      setCurrentCard(null);
+      const { waitingLearning } = classifyCards(updatedCards);
+      if (waitingLearning.length === 0) {
+        setCompleted(true);
+        endSession();
+      }
+      // else: pickNextCard already scheduled a timer for learning cards
+    }
+  }, [pickNextCard, classifyCards, endSession]);
 
   const reviewCard = async (rating: number) => {
-    const currentCard = cards[currentIndex];
     if (!currentCard) return;
 
     try {
@@ -224,33 +392,17 @@ export default function StudyPage() {
         },
       ]);
 
-      // Update the card's SRS values in local state
-      const newCards = cards.map((c) =>
+      // Update the card's SRS values in the master list
+      const updatedCards = allCards.map((c) =>
         c.id === currentCard.id
           ? { ...c, easeFactor: updatedCard.easeFactor, interval: updatedCard.interval, repetitions: updatedCard.repetitions, nextReview: updatedCard.nextReview }
           : c
       );
-      setCards(newCards);
-
+      setAllCards(updatedCards);
       setReviewCount((prev) => prev + 1);
 
-      // Track Again cards for re-queue
-      if (rating === 1) {
-        againCardIds.current.add(currentCard.id);
-      }
-
-      if (currentIndex + 1 >= newCards.length) {
-        // Re-queue Again cards immediately if any exist
-        if (againCardIds.current.size > 0) {
-          requeueAgainCards(newCards);
-        } else {
-          setCompleted(true);
-          endSession();
-        }
-      } else {
-        setCurrentIndex((prev) => prev + 1);
-        setFlipped(false);
-      }
+      // Pick next card from queues
+      advanceToNext(updatedCards);
     } catch {
       toast({ title: "Error", description: "Failed to save review", variant: "destructive" });
     }
@@ -286,20 +438,15 @@ export default function StudyPage() {
       setCompleted(false);
     }
 
-    // Restore local SRS values and go back
-    setCards((prev) =>
-      prev.map((c) =>
-        c.id === lastEntry.card.id
-          ? { ...c, easeFactor: lastEntry.prevEF, interval: lastEntry.prevInterval, repetitions: lastEntry.prevReps, nextReview: lastEntry.prevNextReview }
-          : c
-      )
+    // Restore local SRS values
+    const restoredCards = allCards.map((c) =>
+      c.id === lastEntry.card.id
+        ? { ...c, easeFactor: lastEntry.prevEF, interval: lastEntry.prevInterval, repetitions: lastEntry.prevReps, nextReview: lastEntry.prevNextReview }
+        : c
     );
-
-    const idx = cards.findIndex((c) => c.id === lastEntry.card.id);
-    if (idx !== -1) {
-      setCurrentIndex(idx);
-      setFlipped(false);
-    }
+    setAllCards(restoredCards);
+    setCurrentCard(lastEntry.card);
+    setFlipped(false);
   };
 
   const resetDeck = async () => {
@@ -336,8 +483,9 @@ export default function StudyPage() {
     );
   }
 
-  const currentCard = cards[currentIndex];
-  const progressPercent = cards.length > 0 ? (reviewCount / cards.length) * 100 : 0;
+  // Total actionable cards (due + new + learning)
+  const totalActionable = queueCounts.newCount + queueCounts.learningCount + queueCounts.dueCount;
+  const progressPercent = totalActionable > 0 ? (reviewCount / (reviewCount + totalActionable)) * 100 : (reviewCount > 0 ? 100 : 0);
 
   // Determine which side to show based on direction
   const frontSide = direction === "a2b" ? "sideA" : "sideB";
@@ -387,11 +535,15 @@ export default function StudyPage() {
           Direction: {direction === "a2b" ? "A → B" : "B → A"}
         </div>
 
-        {/* Progress */}
+        {/* Progress & Queue Counts */}
         <div className="mb-6">
           <div className="flex items-center justify-between text-sm text-muted-foreground mb-2">
             <span>{reviewCount} reviewed</span>
-            <span>{Math.min(currentIndex + 1, cards.length)} / {cards.length}</span>
+            <div className="flex gap-2 text-xs">
+              <span className="text-blue-500">{queueCounts.newCount} new</span>
+              <span className="text-orange-500">{queueCounts.learningCount} learning</span>
+              <span className="text-green-500">{queueCounts.dueCount} due</span>
+            </div>
           </div>
           <div className="w-full bg-muted rounded-full h-2">
             <div
@@ -520,6 +672,18 @@ export default function StudyPage() {
               Swipe left = Again &middot; Swipe right = Hard &middot; Or use buttons
             </p>
           </div>
+        ) : waitingForLearning ? (
+          <div className="text-center py-20">
+            <Loader2 className="h-10 w-10 animate-spin text-orange-500 mx-auto mb-4" />
+            <h2 className="text-xl font-semibold mb-2">Waiting for learning cards...</h2>
+            <p className="text-muted-foreground mb-4">A card will become due shortly. Hang tight!</p>
+            {history.length > 0 && (
+              <Button variant="ghost" className="gap-2" onClick={undoLast}>
+                <Undo2 className="h-4 w-4" />
+                Undo Last
+              </Button>
+            )}
+          </div>
         ) : (
           <div className="text-center py-20">
             <p className="text-muted-foreground">No cards due for review. Check back later or reset the deck!</p>
@@ -554,24 +718,36 @@ export default function StudyPage() {
             <DialogDescription>The SM-2 algorithm schedules reviews at optimal intervals.</DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-4 text-sm">
-            <div className="flex items-start gap-3 p-3 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900">
-              <span className="font-bold text-red-600 dark:text-red-400 min-w-[60px]">1 Again</span>
-              <span className="text-muted-foreground">Card resets. You&apos;ll see it again in under 1 minute. Use this when you completely forgot the answer. Also triggered by swiping left.</span>
+            <div className="p-3 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900">
+              <div className="flex items-center justify-between mb-1">
+                <span className="font-bold text-red-600 dark:text-red-400">1 &middot; Again</span>
+                <span className="text-xs px-2 py-0.5 rounded-full bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300">⬅ Swipe Left</span>
+              </div>
+              <p className="text-muted-foreground text-xs">You forgot the answer completely. The card resets and you&apos;ll see it again in under 1 minute.</p>
             </div>
-            <div className="flex items-start gap-3 p-3 rounded-lg bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-900">
-              <span className="font-bold text-orange-600 dark:text-orange-400 min-w-[60px]">2 Hard</span>
-              <span className="text-muted-foreground">You recalled it with difficulty. First time: 5 min, then grows slowly. Also triggered by swiping right.</span>
+            <div className="p-3 rounded-lg bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-900">
+              <div className="flex items-center justify-between mb-1">
+                <span className="font-bold text-orange-600 dark:text-orange-400">2 &middot; Hard</span>
+                <span className="text-xs px-2 py-0.5 rounded-full bg-orange-100 dark:bg-orange-900/50 text-orange-700 dark:text-orange-300">➡ Swipe Right</span>
+              </div>
+              <p className="text-muted-foreground text-xs">You recalled it but with difficulty. Base interval: &lt;5 min, then grows slowly with each review.</p>
             </div>
-            <div className="flex items-start gap-3 p-3 rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900">
-              <span className="font-bold text-blue-600 dark:text-blue-400 min-w-[60px]">3 Good</span>
-              <span className="text-muted-foreground">Normal recall. First time: 5 hours, then 1 day, 3 days, and grows with your ease factor.</span>
+            <div className="p-3 rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900">
+              <div className="flex items-center justify-between mb-1">
+                <span className="font-bold text-blue-600 dark:text-blue-400">3 &middot; Good</span>
+                <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300">Button Only</span>
+              </div>
+              <p className="text-muted-foreground text-xs">Normal recall. Base interval: 1 hour, then grows proportionally with your ease factor.</p>
             </div>
-            <div className="flex items-start gap-3 p-3 rounded-lg bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-900">
-              <span className="font-bold text-green-600 dark:text-green-400 min-w-[60px]">4 Easy</span>
-              <span className="text-muted-foreground">Instant recall. First time: 1 day, then 3 days, 7 days, and grows faster.</span>
+            <div className="p-3 rounded-lg bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-900">
+              <div className="flex items-center justify-between mb-1">
+                <span className="font-bold text-green-600 dark:text-green-400">4 &middot; Easy</span>
+                <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900/50 text-green-700 dark:text-green-300">Button Only</span>
+              </div>
+              <p className="text-muted-foreground text-xs">Instant, effortless recall. Base interval: 5 hours, then grows faster than Good.</p>
             </div>
             <p className="text-xs text-muted-foreground pt-2">
-              The time shown under each button is the estimated next review date based on the card&apos;s current state.
+              The time shown under each button is the estimated next review interval based on the card&apos;s current state.
             </p>
           </div>
         </DialogContent>

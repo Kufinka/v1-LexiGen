@@ -18,9 +18,22 @@ export async function PATCH(req: Request, { params }: { params: { sessionId: str
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
+    let activeSeconds: number | undefined;
+    try {
+      const body = await req.json();
+      if (typeof body.activeSeconds === "number" && body.activeSeconds >= 0) {
+        activeSeconds = Math.round(body.activeSeconds);
+      }
+    } catch {
+      // No body or invalid JSON — that's fine, just end session
+    }
+
     const updated = await prisma.studySession.update({
       where: { id: params.sessionId },
-      data: { endedAt: new Date() },
+      data: {
+        endedAt: new Date(),
+        ...(activeSeconds !== undefined ? { activeSeconds } : {}),
+      },
     });
 
     return NextResponse.json(updated);

@@ -310,27 +310,60 @@ export default function DeckDetailPage() {
 
   const stripHtml = (html: string) => html.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').trim();
 
+  const isSQLite = (data: Uint8Array) => {
+    // SQLite files start with "SQLite format 3\0"
+    if (data.length < 16) return false;
+    const header = String.fromCharCode(...Array.from(data.slice(0, 16)));
+    return header.startsWith("SQLite format 3");
+  };
+
   const parseApkgFile = async (file: File): Promise<{ sideA: string; sideB: string; type: "WORD" | "SENTENCE" }[]> => {
     const arrayBuffer = await file.arrayBuffer();
     const zip = await JSZip.loadAsync(arrayBuffer);
 
-    const allFiles = Object.keys(zip.files);
+    const allFiles = Object.keys(zip.files).filter((f) => !f.endsWith("/"));
     console.log("[apkg] Files in archive:", allFiles);
 
-    // Find SQLite database: try common names, then any .anki2/.anki21 file, then fallback to any .db or largest non-media file
-    let dbFile = zip.file("collection.anki2") || zip.file("collection.anki21");
-    if (!dbFile) {
-      const anki2Name = allFiles.find((f) => f.endsWith(".anki2") || f.endsWith(".anki21"));
-      if (anki2Name) dbFile = zip.file(anki2Name);
-    }
-    if (!dbFile) {
-      // Some exports put the db directly without standard name
-      const dbName = allFiles.find((f) => !f.startsWith("media") && !f.endsWith("/") && f !== "media");
-      if (dbName) dbFile = zip.file(dbName);
-    }
-    if (!dbFile) throw new Error("No Anki database found in .apkg file. Files: " + allFiles.join(", "));
+    // Strategy: find the SQLite database file by checking actual file headers
+    // 1) Try well-known names first
+    // 2) Then probe every non-directory file for the SQLite magic header
+    const candidates = [
+      "collection.anki2",
+      "collection.anki21",
+      ...allFiles.filter((f) => f.endsWith(".anki2") || f.endsWith(".anki21")),
+    ];
 
-    const dbData = await dbFile.async("uint8array");
+    let dbData: Uint8Array | null = null;
+
+    for (const name of candidates) {
+      const entry = zip.file(name);
+      if (entry) {
+        const data = await entry.async("uint8array");
+        if (isSQLite(data)) {
+          dbData = data;
+          console.log("[apkg] Found SQLite db at:", name);
+          break;
+        }
+      }
+    }
+
+    // If not found, probe ALL files for SQLite header (handles renamed/numeric db files)
+    if (!dbData) {
+      for (const name of allFiles) {
+        if (name === "media") continue; // skip the JSON media map
+        const entry = zip.file(name);
+        if (!entry) continue;
+        const data = await entry.async("uint8array");
+        if (isSQLite(data)) {
+          dbData = data;
+          console.log("[apkg] Found SQLite db by probing:", name);
+          break;
+        }
+      }
+    }
+
+    if (!dbData) throw new Error("No Anki SQLite database found in .apkg file. The file may use Anki 2.1.50+ protobuf format (.anki21b) which is not yet supported. Files: " + allFiles.join(", "));
+
     const initSqlJs = (await import("sql.js")).default;
     const SQL = await initSqlJs({
       locateFile: () => `/sql-wasm.wasm`,

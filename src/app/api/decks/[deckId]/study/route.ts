@@ -21,12 +21,12 @@ export async function GET(req: Request, { params }: { params: { deckId: string }
 
     const where: Record<string, unknown> = {
       deckId: params.deckId,
-      nextReview: { lte: new Date() },
     };
 
     if (filter === "words") where.type = "WORD";
     else if (filter === "sentences") where.type = "SENTENCE";
 
+    // Fetch ALL cards so the client can classify into New/Learning/Due queues
     const cards = await prisma.card.findMany({
       where,
       orderBy: { nextReview: "asc" },

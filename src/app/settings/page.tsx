@@ -48,6 +48,7 @@ export default function SettingsPage() {
   const [bio, setBio] = useState("");
   const [avatarConfig, setAvatarConfig] = useState<AvatarConfig>(generateDefaultAvatar());
   const [createdAt, setCreatedAt] = useState<string | null>(null);
+  const [bioError, setBioError] = useState("");
 
   useEffect(() => {
     if (status === "unauthenticated") router.push("/login");
@@ -81,6 +82,11 @@ export default function SettingsPage() {
   };
 
   const handleSave = async () => {
+    if (bio.length > 500) {
+      setBioError("Bio must be at most 500 characters.");
+      return;
+    }
+    setBioError("");
     setSaving(true);
     try {
       const image = serializeAvatarConfig(avatarConfig);
@@ -146,9 +152,9 @@ export default function SettingsPage() {
                   {/* Sex */}
                   <div className="flex items-center gap-2">
                     <p className="text-xs text-muted-foreground w-16">Style</p>
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setAvatarConfig({ ...avatarConfig, sex: avatarConfig.sex === "man" ? "woman" : "man" })}><ChevronLeft className="h-4 w-4" /></Button>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { const newSex = avatarConfig.sex === "man" ? "woman" : "man"; setAvatarConfig({ ...avatarConfig, sex: newSex, eyeBrowStyle: newSex === "woman" ? "upWoman" : "up" }); }}><ChevronLeft className="h-4 w-4" /></Button>
                     <span className="text-sm w-20 text-center capitalize">{avatarConfig.sex}</span>
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setAvatarConfig({ ...avatarConfig, sex: avatarConfig.sex === "man" ? "woman" : "man" })}><ChevronRight className="h-4 w-4" /></Button>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { const newSex = avatarConfig.sex === "man" ? "woman" : "man"; setAvatarConfig({ ...avatarConfig, sex: newSex, eyeBrowStyle: newSex === "woman" ? "upWoman" : "up" }); }}><ChevronRight className="h-4 w-4" /></Button>
                   </div>
                   {/* Background Color */}
                   <div>
@@ -267,10 +273,12 @@ export default function SettingsPage() {
                 id="bio"
                 placeholder="Tell us about yourself..."
                 value={bio}
-                onChange={(e) => setBio(e.target.value)}
+                onChange={(e) => { setBio(e.target.value); setBioError(""); }}
                 rows={3}
+                className={bioError ? "border-destructive" : ""}
               />
-              <p className="text-xs text-muted-foreground">{bio.length}/500 characters</p>
+              <p className={`text-xs ${bio.length > 500 ? "text-destructive" : "text-muted-foreground"}`}>{bio.length}/500 characters</p>
+              {bioError && <p className="text-xs text-destructive">{bioError}</p>}
             </div>
 
             <div className="space-y-2">

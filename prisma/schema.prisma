@@ -88,9 +88,10 @@ model CardReview {
 }
 
 model StudySession {
-  id        String   @id @default(cuid())
-  startedAt DateTime @default(now())
-  endedAt   DateTime?
+  id            String   @id @default(cuid())
+  startedAt     DateTime @default(now())
+  endedAt       DateTime?
+  activeSeconds Int      @default(0)
   
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)

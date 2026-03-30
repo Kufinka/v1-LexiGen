@@ -59,9 +59,11 @@ export default function DecksPage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deletingDeckId, setDeletingDeckId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [tagFilter, setTagFilter] = useState("");
+  const [tagFilter, setTagFilter] = useState<string[]>([]);
+  const [languageFilter, setLanguageFilter] = useState("");
   const [sortBy, setSortBy] = useState("updatedAt");
   const [newDeck, setNewDeck] = useState({ name: "", description: "", languageA: "", languageB: "", tags: "" });
+  const [tagError, setTagError] = useState("");
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
@@ -96,6 +98,8 @@ export default function DecksPage() {
     return tags;
   }, [allDecks]);
 
+  const allLanguages = useMemo(() => Array.from(new Set(allDecks.flatMap((d) => [d.languageA, d.languageB]))), [allDecks]);
+
   // Client-side filtering for instant search
   const decks = useMemo(() => {
     let filtered = allDecks;
@@ -110,15 +114,19 @@ export default function DecksPage() {
           (d.isClone && "cloned".includes(q))
       );
     }
-    if (tagFilter && tagFilter !== "all") {
-      if (tagFilter === "Cloned") {
-        filtered = filtered.filter((d) => d.isClone);
-      } else {
-        filtered = filtered.filter((d) => d.tags.includes(tagFilter));
-      }
+    if (tagFilter.length > 0) {
+      filtered = filtered.filter((d) => {
+        return tagFilter.every((tag) => {
+          if (tag === "Cloned") return d.isClone;
+          return d.tags.includes(tag);
+        });
+      });
+    }
+    if (languageFilter && languageFilter !== "all") {
+      filtered = filtered.filter((d) => d.languageA === languageFilter || d.languageB === languageFilter);
     }
     return filtered;
-  }, [allDecks, search, tagFilter]);
+  }, [allDecks, search, tagFilter, languageFilter]);
 
   // Debounced search - no button needed
   const handleSearchChange = (value: string) => {
@@ -133,9 +141,10 @@ export default function DecksPage() {
     const rawTags = newDeck.tags.split(",").map((t) => t.trim().toLowerCase()).filter(Boolean);
     const tooLong = rawTags.find((t) => t.length > MAX_TAG_LENGTH);
     if (tooLong) {
-      toast({ title: "Tag too long", description: `"${tooLong}" exceeds ${MAX_TAG_LENGTH} characters. Please shorten it.`, variant: "destructive" });
+      setTagError(`"${tooLong}" exceeds ${MAX_TAG_LENGTH} characters. Please shorten it.`);
       return;
     }
+    setTagError("");
     setCreating(true);
     try {
       const tags = Array.from(new Set(rawTags));
@@ -294,8 +303,10 @@ export default function DecksPage() {
                   <Input
                     placeholder="e.g., travel, beginner, japan"
                     value={newDeck.tags}
-                    onChange={(e) => setNewDeck({ ...newDeck, tags: e.target.value })}
+                    onChange={(e) => { setNewDeck({ ...newDeck, tags: e.target.value }); setTagError(""); }}
+                    className={tagError ? "border-destructive" : ""}
                   />
+                  {tagError && <p className="text-xs text-destructive">{tagError}</p>}
                 </div>
               </div>
               <DialogFooter>
@@ -319,14 +330,46 @@ export default function DecksPage() {
               className="pl-10"
             />
           </div>
-          <Select value={tagFilter || "all"} onValueChange={(v) => setTagFilter(v === "all" ? "" : v)}>
+          <div className="relative">
+            <Select value="__tags__" onValueChange={() => {}}>
+              <SelectTrigger className="w-40">
+                <span className="truncate">{tagFilter.length === 0 ? "All Tags" : `${tagFilter.length} tag${tagFilter.length > 1 ? "s" : ""}`}</span>
+              </SelectTrigger>
+              <SelectContent>
+                <div className="p-1">
+                  <button
+                    className="flex items-center gap-2 w-full px-2 py-1.5 text-sm rounded hover:bg-accent"
+                    onClick={() => setTagFilter([])}
+                  >
+                    <div className={`w-4 h-4 rounded border flex items-center justify-center ${tagFilter.length === 0 ? "bg-primary border-primary" : "border-muted-foreground/40"}`}>
+                      {tagFilter.length === 0 && <span className="text-primary-foreground text-xs">✓</span>}
+                    </div>
+                    All Tags
+                  </button>
+                  {allTags.map((tag) => (
+                    <button
+                      key={tag}
+                      className="flex items-center gap-2 w-full px-2 py-1.5 text-sm rounded hover:bg-accent"
+                      onClick={() => setTagFilter((prev) => prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag])}
+                    >
+                      <div className={`w-4 h-4 rounded border flex items-center justify-center ${tagFilter.includes(tag) ? "bg-primary border-primary" : "border-muted-foreground/40"}`}>
+                        {tagFilter.includes(tag) && <span className="text-primary-foreground text-xs">✓</span>}
+                      </div>
+                      {tag}
+                    </button>
+                  ))}
+                </div>
+              </SelectContent>
+            </Select>
+          </div>
+          <Select value={languageFilter || "all"} onValueChange={(v) => setLanguageFilter(v === "all" ? "" : v)}>
             <SelectTrigger className="w-36">
-              <SelectValue placeholder="Filter tag" />
+              <SelectValue placeholder="Language" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All Tags</SelectItem>
-              {allTags.map((tag) => (
-                <SelectItem key={tag} value={tag}>{tag}</SelectItem>
+              <SelectItem value="all">All Languages</SelectItem>
+              {allLanguages.map((lang) => (
+                <SelectItem key={lang} value={lang}>{lang}</SelectItem>
               ))}
             </SelectContent>
           </Select>

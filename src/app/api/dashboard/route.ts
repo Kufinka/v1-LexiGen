@@ -46,9 +46,14 @@ export async function GET(req: Request) {
       },
     });
 
-    const MAX_SESSION_MS = 2 * 60 * 60 * 1000; // cap any single session at 2 hours
-    const hoursStudiedToday = todaySessions.reduce((total: number, s: { startedAt: Date; endedAt: Date | null }) => {
+    const hoursStudiedToday = todaySessions.reduce((total, s) => {
+      const activeSec = (s as unknown as { activeSeconds: number }).activeSeconds;
+      if (activeSec > 0) {
+        return total + activeSec / 3600;
+      }
+      // Fallback for legacy sessions without activeSeconds
       const end = s.endedAt || now;
+      const MAX_SESSION_MS = 2 * 60 * 60 * 1000;
       const duration = Math.min(end.getTime() - s.startedAt.getTime(), MAX_SESSION_MS);
       return total + duration / (1000 * 60 * 60);
     }, 0);
@@ -106,9 +111,13 @@ export async function GET(req: Request) {
         },
       });
 
-      const MAX_SESS_MS = 2 * 60 * 60 * 1000;
-      const minutes = sessions.reduce((total: number, s: { startedAt: Date; endedAt: Date | null }) => {
+      const minutes = sessions.reduce((total, s) => {
+        const activeSec = (s as unknown as { activeSeconds: number }).activeSeconds;
+        if (activeSec > 0) {
+          return total + activeSec / 60;
+        }
         const end = s.endedAt || (dayEnd < now ? dayEnd : now);
+        const MAX_SESS_MS = 2 * 60 * 60 * 1000;
         const duration = Math.min(end.getTime() - s.startedAt.getTime(), MAX_SESS_MS);
         return total + duration / (1000 * 60);
       }, 0);
