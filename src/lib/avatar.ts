@@ -64,7 +64,12 @@ export function generateDefaultAvatar(): AvatarConfig {
 }
 
 export function generateRandomAvatar(): AvatarConfig {
-  return genConfig();
+  const config = genConfig();
+  // Ensure hairColorRandom is always false so the user-chosen hairColor takes effect
+  config.hairColorRandom = false;
+  // Pick a random hair color from our palette instead of genConfig's random color
+  config.hairColor = HAIR_COLORS[Math.floor(Math.random() * HAIR_COLORS.length)];
+  return config;
 }
 
 export function parseAvatarConfig(imageStr: string | null | undefined): AvatarConfig | null {

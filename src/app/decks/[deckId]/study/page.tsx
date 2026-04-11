@@ -121,15 +121,21 @@ export default function StudyPage() {
 
     for (const card of cards) {
       const isDue = new Date(card.nextReview) <= now;
-      if (card.repetitions === 0 && isDue) {
+      // A truly new card has repetitions=0 AND interval=0 (never reviewed).
+      // A card rated "Again" has repetitions=0 BUT interval>0 (was reviewed, got reset).
+      const isTrulyNew = card.repetitions === 0 && card.interval === 0;
+      const isLearningInterval = card.interval > 0 && card.interval <= LEARNING_THRESHOLD;
+
+      if (isTrulyNew && isDue) {
         newQueue.push(card);
-      } else if (card.interval <= LEARNING_THRESHOLD && card.repetitions > 0) {
+      } else if (isLearningInterval) {
+        // Learning: includes "Again" cards (rep=0, interval=1) and short-interval cards
         if (isDue) {
           learningQueue.push(card); // Due learning — highest priority
         } else {
           waitingLearning.push(card); // Learning but not yet due — will loop back
         }
-      } else if (isDue && card.repetitions > 0) {
+      } else if (isDue && card.interval > LEARNING_THRESHOLD) {
         dueQueue.push(card);
       }
       // Cards with interval > 10 that aren't due yet are simply not shown
@@ -152,21 +158,16 @@ export default function StudyPage() {
     if (dueQueue.length > 0) return dueQueue[0];
     if (newQueue.length > 0) return newQueue[0];
 
-    // If there are learning cards waiting, schedule a check
+    // If there are learning cards waiting, show the soonest one immediately
+    // (continuous study loop — don't make the user wait)
     if (waitingLearning.length > 0) {
-      // Find soonest due learning card
+      setWaitingForLearning(false);
+      if (learningTimerRef.current) clearTimeout(learningTimerRef.current);
+      // Pick the soonest-due learning card and show it now
       const soonest = waitingLearning.reduce((a, b) =>
         new Date(a.nextReview) < new Date(b.nextReview) ? a : b
       );
-      const waitMs = Math.max(0, new Date(soonest.nextReview).getTime() - Date.now());
-      setWaitingForLearning(true);
-      if (learningTimerRef.current) clearTimeout(learningTimerRef.current);
-      learningTimerRef.current = setTimeout(() => {
-        setWaitingForLearning(false);
-        // Re-pick — the card should now be due
-        setAllCards((prev) => [...prev]); // trigger re-render
-      }, waitMs + 100); // small buffer
-      return null;
+      return soonest;
     }
 
     return null; // truly done

@@ -125,14 +125,16 @@ export default function CommunityPage() {
           d.user.username.toLowerCase().includes(q)
       );
     }
-    if (tagFilter && tagFilter !== "all") {
+    if (tagFilter === "__my_decks__") {
+      filtered = filtered.filter((d) => d.user.id === session?.user?.id);
+    } else if (tagFilter && tagFilter !== "all") {
       filtered = filtered.filter((d) => d.tags.includes(tagFilter));
     }
     if (languageFilter && languageFilter !== "all") {
       filtered = filtered.filter((d) => d.languageA === languageFilter || d.languageB === languageFilter);
     }
     return filtered;
-  }, [allDecks, search, tagFilter, languageFilter]);
+  }, [allDecks, search, tagFilter, languageFilter, session?.user?.id]);
 
   const isOwnDeck = (deck: CommunityDeck) => session?.user?.id === deck.user.id;
 
@@ -326,6 +328,7 @@ export default function CommunityPage() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Tags</SelectItem>
+              <SelectItem value="__my_decks__">My Decks</SelectItem>
               {allTags.map((tag) => (
                 <SelectItem key={tag} value={tag}>{tag}</SelectItem>
               ))}

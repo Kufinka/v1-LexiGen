@@ -10,6 +10,7 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    const userId = session.user.id;
     const { searchParams } = new URL(req.url);
     const now = new Date();
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -20,68 +21,70 @@ export async function GET(req: Request) {
     const chartYear = qYear ? parseInt(qYear, 10) : now.getFullYear();
     const chartMonth = qMonth ? parseInt(qMonth, 10) : now.getMonth();
 
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const startOfCurrentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
-    // Total reviews today — query via card→deck→userId so reviews with null sessionId are included
-    const todayReviews = await prisma.cardReview.count({
-      where: {
-        card: { deck: { userId: session.user.id } },
-        createdAt: { gte: startOfToday },
-      },
-    });
-
-    // Total reviews this month
-    const monthReviews = await prisma.cardReview.count({
-      where: {
-        card: { deck: { userId: session.user.id } },
-        createdAt: { gte: startOfMonth },
-      },
-    });
-
-    // Sessions today for time tracking
-    const todaySessions = await prisma.studySession.findMany({
-      where: {
-        userId: session.user.id,
-        startedAt: { gte: startOfToday },
-      },
-    });
+    // --- Batch: today reviews, month reviews, today sessions ---
+    const [todayReviews, monthReviews, todaySessions] = await Promise.all([
+      prisma.cardReview.count({
+        where: {
+          card: { deck: { userId } },
+          createdAt: { gte: startOfToday },
+        },
+      }),
+      prisma.cardReview.count({
+        where: {
+          card: { deck: { userId } },
+          createdAt: { gte: startOfCurrentMonth },
+        },
+      }),
+      prisma.studySession.findMany({
+        where: { userId, startedAt: { gte: startOfToday } },
+      }),
+    ]);
 
     const hoursStudiedToday = todaySessions.reduce((total, s) => {
-      const activeSec = (s as unknown as { activeSeconds: number }).activeSeconds;
-      if (activeSec > 0) {
-        return total + activeSec / 3600;
+      if (s.activeSeconds > 0) {
+        return total + s.activeSeconds / 3600;
       }
-      // Fallback for legacy sessions without activeSeconds
       const end = s.endedAt || now;
       const MAX_SESSION_MS = 2 * 60 * 60 * 1000;
       const duration = Math.min(end.getTime() - s.startedAt.getTime(), MAX_SESSION_MS);
       return total + duration / (1000 * 60 * 60);
     }, 0);
 
-    // Calculate streak
+    // --- Streak: batch-fetch all review dates in last 365 days, then count consecutive days ---
+    const streakLookback = new Date(startOfToday);
+    streakLookback.setDate(streakLookback.getDate() - 365);
+
+    const reviewDatesRaw = await prisma.cardReview.findMany({
+      where: {
+        card: { deck: { userId } },
+        createdAt: { gte: streakLookback },
+      },
+      select: { createdAt: true },
+    });
+
+    // Build a set of date strings (YYYY-MM-DD) that have at least one review
+    const reviewDaySet = new Set<string>();
+    for (const r of reviewDatesRaw) {
+      const d = r.createdAt;
+      reviewDaySet.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`);
+    }
+
     let streak = 0;
     const checkDate = new Date(startOfToday);
+    const toKey = (d: Date) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
-    // Check if user studied today
-    if (todayReviews > 0) {
+    // Check today first
+    if (reviewDaySet.has(toKey(checkDate))) {
       streak = 1;
       checkDate.setDate(checkDate.getDate() - 1);
     }
 
-    // Check previous days
+    // Count consecutive previous days
     for (let i = 0; i < 365; i++) {
-      const dayStart = new Date(checkDate);
-      const dayEnd = new Date(checkDate);
-      dayEnd.setDate(dayEnd.getDate() + 1);
-
-      const count = await prisma.cardReview.count({
-        where: {
-          card: { deck: { userId: session.user.id } },
-          createdAt: { gte: dayStart, lt: dayEnd },
-        },
-      });
-
-      if (count > 0) {
+      if (reviewDaySet.has(toKey(checkDate))) {
         streak++;
         checkDate.setDate(checkDate.getDate() - 1);
       } else {
@@ -89,44 +92,59 @@ export async function GET(req: Request) {
       }
     }
 
-    // Daily data for the selected month chart
-    const dailyData = [];
+    // --- Chart data: batch-fetch all reviews & sessions for the selected month ---
     const daysInMonth = new Date(chartYear, chartMonth + 1, 0).getDate();
+    const chartStart = new Date(chartYear, chartMonth, 1);
+    const chartEnd = new Date(chartYear, chartMonth + 1, 1);
 
-    for (let day = 1; day <= daysInMonth; day++) {
-      const dayStart = new Date(chartYear, chartMonth, day);
-      const dayEnd = new Date(chartYear, chartMonth, day + 1);
-
-      const reviews = await prisma.cardReview.count({
+    const [chartReviews, chartSessions] = await Promise.all([
+      prisma.cardReview.findMany({
         where: {
-          card: { deck: { userId: session.user.id } },
-          createdAt: { gte: dayStart, lt: dayEnd },
+          card: { deck: { userId } },
+          createdAt: { gte: chartStart, lt: chartEnd },
         },
-      });
-
-      const sessions = await prisma.studySession.findMany({
+        select: { createdAt: true },
+      }),
+      prisma.studySession.findMany({
         where: {
-          userId: session.user.id,
-          startedAt: { gte: dayStart, lt: dayEnd },
+          userId,
+          startedAt: { gte: chartStart, lt: chartEnd },
         },
-      });
+      }),
+    ]);
 
-      const minutes = sessions.reduce((total, s) => {
-        const activeSec = (s as unknown as { activeSeconds: number }).activeSeconds;
-        if (activeSec > 0) {
-          return total + activeSec / 60;
-        }
+    // Group reviews by day of month
+    const reviewsByDay = new Map<number, number>();
+    for (const r of chartReviews) {
+      const day = r.createdAt.getDate();
+      reviewsByDay.set(day, (reviewsByDay.get(day) || 0) + 1);
+    }
+
+    // Group session minutes by day of month
+    const minutesByDay = new Map<number, number>();
+    for (const s of chartSessions) {
+      const day = s.startedAt.getDate();
+      let mins: number;
+      if (s.activeSeconds > 0) {
+        mins = s.activeSeconds / 60;
+      } else {
+        const dayEnd = new Date(chartYear, chartMonth, day + 1);
         const end = s.endedAt || (dayEnd < now ? dayEnd : now);
         const MAX_SESS_MS = 2 * 60 * 60 * 1000;
         const duration = Math.min(end.getTime() - s.startedAt.getTime(), MAX_SESS_MS);
-        return total + duration / (1000 * 60);
-      }, 0);
+        mins = duration / (1000 * 60);
+      }
+      minutesByDay.set(day, (minutesByDay.get(day) || 0) + mins);
+    }
 
+    const dailyData = [];
+    for (let day = 1; day <= daysInMonth; day++) {
+      const dayStart = new Date(chartYear, chartMonth, day);
       dailyData.push({
         day,
         date: dayStart.toISOString().split("T")[0],
-        reviews,
-        minutes: Math.round(minutes),
+        reviews: reviewsByDay.get(day) || 0,
+        minutes: Math.round(minutesByDay.get(day) || 0),
       });
     }
 

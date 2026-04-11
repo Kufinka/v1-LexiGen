@@ -324,24 +324,45 @@ export default function DeckDetailPage() {
     const allFiles = Object.keys(zip.files).filter((f) => !f.endsWith("/"));
     console.log("[apkg] Files in archive:", allFiles);
 
+    // Helper: try zstd decompression
+    const tryZstdDecompress = async (data: Uint8Array): Promise<Uint8Array | null> => {
+      try {
+        const fzstd = await import("fzstd");
+        const decompressed = fzstd.decompress(data);
+        return decompressed;
+      } catch (e) {
+        console.log("[apkg] zstd decompress failed:", e);
+        return null;
+      }
+    };
+
     // Strategy: find the SQLite database file by checking actual file headers
-    // 1) Try well-known names first
+    // 1) Try well-known names first (including .anki21b which is zstd-compressed)
     // 2) Then probe every non-directory file for the SQLite magic header
     const candidates = [
+      "collection.anki21b",
       "collection.anki2",
       "collection.anki21",
-      ...allFiles.filter((f) => f.endsWith(".anki2") || f.endsWith(".anki21")),
+      ...allFiles.filter((f) => f.endsWith(".anki2") || f.endsWith(".anki21") || f.endsWith(".anki21b")),
     ];
 
     let dbData: Uint8Array | null = null;
 
-    for (const name of candidates) {
+    const uniqueCandidates = Array.from(new Set(candidates));
+    for (const name of uniqueCandidates) {
       const entry = zip.file(name);
       if (entry) {
         const data = await entry.async("uint8array");
         if (isSQLite(data)) {
           dbData = data;
           console.log("[apkg] Found SQLite db at:", name);
+          break;
+        }
+        // Try zstd decompression (for .anki21b files)
+        const decompressed = await tryZstdDecompress(data);
+        if (decompressed && isSQLite(decompressed)) {
+          dbData = decompressed;
+          console.log("[apkg] Found zstd-compressed SQLite db at:", name);
           break;
         }
       }
@@ -359,10 +380,17 @@ export default function DeckDetailPage() {
           console.log("[apkg] Found SQLite db by probing:", name);
           break;
         }
+        // Also try zstd decompression on unknown files
+        const decompressed = await tryZstdDecompress(data);
+        if (decompressed && isSQLite(decompressed)) {
+          dbData = decompressed;
+          console.log("[apkg] Found zstd-compressed SQLite db by probing:", name);
+          break;
+        }
       }
     }
 
-    if (!dbData) throw new Error("No Anki SQLite database found in .apkg file. The file may use Anki 2.1.50+ protobuf format (.anki21b) which is not yet supported. Files: " + allFiles.join(", "));
+    if (!dbData) throw new Error("No Anki SQLite database found in .apkg file. Files: " + allFiles.join(", "));
 
     const initSqlJs = (await import("sql.js")).default;
     const SQL = await initSqlJs({

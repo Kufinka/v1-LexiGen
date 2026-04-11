@@ -17,15 +17,19 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-} from "recharts";
+import dynamic from "next/dynamic";
+
+const DashboardChart = dynamic(
+  () => import("@/components/dashboard-chart"),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center h-full">
+        <Loader2 className="h-6 w-6 animate-spin text-primary" />
+      </div>
+    ),
+  }
+);
 
 interface DailyEntry {
   day: number;
@@ -71,9 +75,14 @@ export default function DashboardPage() {
       if (res.ok) {
         const dashData = await res.json();
         setData(dashData);
-        setChartData(dashData.dailyData);
+        setChartData(dashData.dailyData || []);
+      } else {
+        const errBody = await res.json().catch(() => null);
+        console.error("[dashboard] API error:", res.status, errBody);
+        toast({ title: "Error", description: errBody?.error || "Failed to load dashboard data", variant: "destructive" });
       }
-    } catch {
+    } catch (err) {
+      console.error("[dashboard] fetch error:", err);
       toast({ title: "Error", description: "Failed to load dashboard", variant: "destructive" });
     } finally {
       setLoading(false);
@@ -213,42 +222,7 @@ export default function DashboardPage() {
                   <Loader2 className="h-6 w-6 animate-spin text-primary" />
                 </div>
               ) : chartData.length > 0 ? (
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={chartData}>
-                    <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-                    <XAxis
-                      dataKey="day"
-                      tick={{ fontSize: 12 }}
-                      tickLine={false}
-                    />
-                    <YAxis tick={{ fontSize: 12 }} tickLine={false} allowDecimals={false} />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: "hsl(var(--card))",
-                        border: "1px solid hsl(var(--border))",
-                        borderRadius: "0.75rem",
-                        color: "hsl(var(--foreground))",
-                        boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
-                      }}
-                      cursor={{ fill: "hsl(var(--primary) / 0.08)" }}
-                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                      formatter={(value: any) =>
-                        chartMode === "reviews"
-                          ? [`${value} reviews`, "Reviews"]
-                          : [`${Math.round(value)} min`, "Time"]
-                      }
-                      labelFormatter={(label) => `Day ${label}`}
-                    />
-                    <Bar
-                      dataKey={chartMode === "reviews" ? "reviews" : "minutes"}
-                      fill="hsl(var(--primary))"
-                      radius={[4, 4, 0, 0]}
-                      style={{ filter: "none" }}
-                      onMouseEnter={() => {}}
-                      activeBar={{ style: { filter: "brightness(1.1) drop-shadow(0 0 4px hsl(var(--primary) / 0.3))", stroke: "none" } }}
-                    />
-                  </BarChart>
-                </ResponsiveContainer>
+                <DashboardChart data={chartData} chartMode={chartMode} />
               ) : (
                 <div className="flex items-center justify-center h-full text-muted-foreground">
                   No study activity for {monthLabel}.

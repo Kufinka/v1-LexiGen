@@ -30,13 +30,24 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const body = await req.json();
+    let body;
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json({ error: "Request body too large or malformed. If uploading an image, please use a smaller file." }, { status: 413 });
+    }
+
     const result = profileSchema.safeParse(body);
     if (!result.success) {
       return NextResponse.json({ error: result.error.issues[0].message }, { status: 400 });
     }
 
     const { username, bio, image } = result.data;
+
+    // Reject image strings larger than 700KB (base64 data URLs)
+    if (image && image.length > 700_000) {
+      return NextResponse.json({ error: "Image is too large. Please upload an image under 500 KB." }, { status: 413 });
+    }
 
     const existing = await prisma.user.findFirst({
       where: { username, NOT: { id: session.user.id } },

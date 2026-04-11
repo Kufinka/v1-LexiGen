@@ -5,9 +5,17 @@ import { useParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { Navbar } from "@/components/navbar";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -16,7 +24,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Star, BookOpen, Copy, MessageCircle, Pencil } from "lucide-react";
+import { Loader2, Star, BookOpen, Copy, MessageCircle, Pencil, Search } from "lucide-react";
 import AvatarDisplay from "@/components/avatar-display";
 
 interface PublicDeck {
@@ -64,6 +72,9 @@ export default function PublisherProfilePage() {
   const [hoverRating, setHoverRating] = useState(0);
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
   const [editCommentText, setEditCommentText] = useState("");
+  const [search, setSearch] = useState("");
+  const [tagFilter, setTagFilter] = useState("");
+  const [languageFilter, setLanguageFilter] = useState("");
 
   useEffect(() => {
     const fetchProfile = async () => {
@@ -186,6 +197,32 @@ export default function PublisherProfilePage() {
     return comments.some((c) => c.user.id === session?.user?.id);
   }, [comments, session?.user?.id]);
 
+  const allTags = useMemo(() => Array.from(new Set((profile?.decks || []).flatMap((d) => d.tags))), [profile]);
+  const allLanguages = useMemo(() => Array.from(new Set((profile?.decks || []).flatMap((d) => [d.languageA, d.languageB]))), [profile]);
+
+  const filteredDecks = useMemo(() => {
+    if (!profile) return [];
+    let filtered = profile.decks;
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      filtered = filtered.filter(
+        (d) =>
+          d.name.toLowerCase().includes(q) ||
+          d.description?.toLowerCase().includes(q) ||
+          d.languageA.toLowerCase().includes(q) ||
+          d.languageB.toLowerCase().includes(q) ||
+          d.tags.some((t) => t.toLowerCase().includes(q))
+      );
+    }
+    if (tagFilter && tagFilter !== "all") {
+      filtered = filtered.filter((d) => d.tags.includes(tagFilter));
+    }
+    if (languageFilter && languageFilter !== "all") {
+      filtered = filtered.filter((d) => d.languageA === languageFilter || d.languageB === languageFilter);
+    }
+    return filtered;
+  }, [profile, search, tagFilter, languageFilter]);
+
   if (loading) {
     return (
       <div className="min-h-screen">
@@ -230,11 +267,53 @@ export default function PublisherProfilePage() {
           Public Decks ({profile.decks.length})
         </h2>
 
+        {profile.decks.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-4">
+            <div className="relative flex-1 min-w-[180px]">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search decks..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+            {allTags.length > 0 && (
+              <Select value={tagFilter || "all"} onValueChange={(v) => setTagFilter(v === "all" ? "" : v)}>
+                <SelectTrigger className="w-32">
+                  <SelectValue placeholder="Tag" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Tags</SelectItem>
+                  {allTags.map((tag) => (
+                    <SelectItem key={tag} value={tag}>{tag}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            {allLanguages.length > 0 && (
+              <Select value={languageFilter || "all"} onValueChange={(v) => setLanguageFilter(v === "all" ? "" : v)}>
+                <SelectTrigger className="w-32">
+                  <SelectValue placeholder="Language" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Languages</SelectItem>
+                  {allLanguages.map((lang) => (
+                    <SelectItem key={lang} value={lang}>{lang}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </div>
+        )}
+
         {profile.decks.length === 0 ? (
           <p className="text-muted-foreground">This user has no public decks yet.</p>
+        ) : filteredDecks.length === 0 ? (
+          <p className="text-muted-foreground">No decks match your search.</p>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {profile.decks.map((deck) => (
+            {filteredDecks.map((deck) => (
               <Card
                 key={deck.id}
                 className="glass-card hover:scale-[1.02] transition-transform duration-200 cursor-pointer border"
