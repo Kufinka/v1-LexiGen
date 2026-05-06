@@ -1,5 +1,5 @@
 # LexiGen
-
+ 
 AI-powered bilingual flashcard application with spaced repetition, community sharing, and analytics.
 
 ## Features
